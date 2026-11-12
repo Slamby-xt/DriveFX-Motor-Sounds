@@ -20,7 +20,7 @@
   const P = {
     flat6:    { cyl: 6,  harm: H.f6,  drive: 2.0, bright: 1.5, noise: .9, lope: .15, rumble: 4,  sub: .3, level: 1.0,  pops: true },
     v8:       { cyl: 8,  harm: H.v8,  drive: 3.0, bright: 1.0, noise: 1.0, lope: .8, rumble: 9,  sub: .6, level: 1.1,  pops: true },
-    v12:      { cyl: 12, harm: H.v12, drive: 1.6, bright: 1.8, noise: .6, lope: .05, rumble: 3, sub: .2, level: .9 },
+    v12:      { cyl: 12, harm: H.v12, drive: 1.6, bright: 1.8, noise: .6, lope: .05, rumble: 3, sub: .2, level: .9, pops: true },
     roadster: { ev: true },
     rally:    { cyl: 4,  harm: H.i4t, drive: 3.5, bright: 1.1, noise: 1.2, lope: .3, rumble: 6, sub: .5, level: 1.0, turbo: 1, pops: true },
     hearse:   { cyl: 8,  harm: H.old, drive: 1.5, bright: .55, noise: 1.1, lope: 1.6, rumble: 25, sub: .8, level: 1.0 },
@@ -85,8 +85,27 @@
     v.lfo.connect(v.lfoG); v.lfoG.connect(v.osc.frequency); v.lfoG.connect(v.osc2.frequency);
     const shaper = ctx.createWaveShaper(); shaper.curve = curve(p.drive); shaper.oversample = '2x';
     v.lp = ctx.createBiquadFilter(); v.lp.type = 'lowpass'; v.lp.Q.value = 0.8;
-    mix.connect(shaper); shaper.connect(v.lp); v.lp.connect(out);
-    [v.osc, v.osc2, v.sub, v.lfo].forEach(add);
+    // exhaust body resonances (give the low "boom" of a big pipe)
+    const r1 = ctx.createBiquadFilter(); r1.type = 'peaking'; r1.frequency.value = 95; r1.Q.value = 1.2; r1.gain.value = 9;
+    const r2 = ctx.createBiquadFilter(); r2.type = 'peaking'; r2.frequency.value = 190; r2.Q.value = 1.4; r2.gain.value = 5;
+    mix.connect(shaper); shaper.connect(v.lp); v.lp.connect(r1); r1.connect(r2); r2.connect(out);
+    // GROWL: saw at half firing order, chopped at firing rate (pulsing "rrrrr"), then crushed by heavy distortion
+    v.gr = ctx.createOscillator(); v.gr.type = 'sawtooth';
+    v.grm = ctx.createOscillator(); v.grm.type = 'sine';
+    const grAM = ctx.createGain(); grAM.gain.value = 0.45; const grDepth = ctx.createGain(); grDepth.gain.value = 0.45;
+    v.grm.connect(grDepth); grDepth.connect(grAM.gain);
+    const grShape = ctx.createWaveShaper(); grShape.curve = curve(7); grShape.oversample = '2x';
+    v.grLp = ctx.createBiquadFilter(); v.grLp.type = 'lowpass'; v.grLp.Q.value = 2.5;
+    v.grOut = ctx.createGain(); v.grOut.gain.value = 0;
+    v.gr.connect(grAM); grAM.connect(grShape); grShape.connect(v.grLp); v.grLp.connect(v.grOut); v.grOut.connect(out);
+    // RASP: noise chopped at firing rate = crackly exhaust bark
+    const rn = ctx.createBufferSource(); rn.buffer = noiseBuf; rn.loop = true;
+    v.rbp = ctx.createBiquadFilter(); v.rbp.type = 'bandpass'; v.rbp.Q.value = 1.1;
+    const rAM = ctx.createGain(); rAM.gain.value = 0.5; const rDepth = ctx.createGain(); rDepth.gain.value = 0.5;
+    v.rm = ctx.createOscillator(); v.rm.type = 'square'; v.rm.connect(rDepth); rDepth.connect(rAM.gain);
+    v.rg = ctx.createGain(); v.rg.gain.value = 0;
+    rn.connect(v.rbp); v.rbp.connect(rAM); rAM.connect(v.rg); v.rg.connect(out);
+    [v.osc, v.osc2, v.sub, v.lfo, v.gr, v.grm, v.rm, rn].forEach(add);
     if (p.turbo) {
       v.turbo = ctx.createOscillator(); v.turbo.type = 'sine'; v.tg = ctx.createGain(); v.tg.gain.value = 0;
       v.turbo.connect(v.tg); v.tg.connect(master); add(v.turbo);
@@ -110,7 +129,7 @@
     const og = ctx.createGain(); og.gain.setValueAtTime(amp * 0.5, when); og.gain.exponentialRampToValueAtTime(0.001, when + 0.1);
     o.connect(og); og.connect(master); o.start(when); o.stop(when + 0.12);
   }
-  function pops(n) { const t = ctx.currentTime; let at = t + 0.03; for (let i = 0; i < n; i++) { pop(at, 0.35 + Math.random() * 0.35); at += 0.05 + Math.random() * 0.12; } }
+  function pops(n) { const t = ctx.currentTime; let at = t + 0.03; n = Math.ceil(n * 1.6); for (let i = 0; i < n; i++) { pop(at, 0.5 + Math.random() * 0.5, 500 + Math.random() * 900); at += 0.04 + Math.random() * 0.11; } }
   function blowOff(amp) {
     const t = ctx.currentTime, src = ctx.createBufferSource(); src.buffer = noiseBuf;
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.4;
@@ -149,7 +168,7 @@
       if (p.turbo) blowOff(0.3 * p.turbo);
       if (p.pops) pops(2 + Math.floor(Math.random() * 4));
     }
-    if (on && p.pops && thr < 0.05 && rpmF > 0.4 && d.speed > 20 && Math.random() < 0.03) pop(t, 0.3 + Math.random() * 0.3);
+    if (on && p.pops && thr < 0.05 && rpmF > 0.4 && d.speed > 20 && Math.random() < 0.08) pop(t, 0.4 + Math.random() * 0.5, 600);
     prev.gear = d.gear; prev.thr = thr; prev.running = on;
 
     // engine level
@@ -172,6 +191,14 @@
     v.lp.Q.setTargetAtTime(0.8 + load * 2, t, 0.05);
     v.nbp.frequency.setTargetAtTime(400 + rpmF * 2200, t, 0.05);
     v.ng.gain.setTargetAtTime(on ? p.noise * (0.03 + 0.2 * load * rpmF) : 0, t, 0.05);
+    // growl + rasp follow firing rate; louder under load (the harder you push, the louder it roars)
+    const gk = 0.35 + p.sub * 0.8 + (p.drive > 2.5 ? 0.2 : 0);
+    v.gr.frequency.setTargetAtTime(f / 2, t, 0.025); v.grm.frequency.setTargetAtTime(f, t, 0.025);
+    v.grLp.frequency.setTargetAtTime(260 + rpmF * 900 + load * 700, t, 0.05);
+    v.grOut.gain.setTargetAtTime(on ? gk * (0.35 + 0.65 * load) * (1 - rpmF * 0.3) : 0, t, 0.04);
+    v.rm.frequency.setTargetAtTime(f, t, 0.025);
+    v.rbp.frequency.setTargetAtTime(500 + rpmF * 1500 + load * 600, t, 0.05);
+    v.rg.gain.setTargetAtTime(on ? p.noise * 0.35 * (0.1 + 0.9 * load) * (0.4 + rpmF) : 0, t, 0.04);
     if (p.turbo) {
       v.turbo.frequency.setTargetAtTime(1500 + rpmF * 4500, t, 0.1);
       v.tg.gain.setTargetAtTime(on ? p.turbo * load * rpmF * rpmF * 0.05 : 0, t, 0.25); // spool lag
