@@ -62,35 +62,74 @@
   // Drop a file named like the brand into sounds/ (mp3 or wav) and it is picked up automatically; cars without a file keep the synth.
   const FILES = { flat6: 'porsche', v8: 'dodge', v12: 'ferrari', rally: 'mitsubishi', v10: 'lamborghini', i6t: 'bmw', boxer: 'subaru', rotary: 'mazda', hearse: 'cadillac' };
   // per-car tuning: lp = how much of the highs survive (lower = less whine), bass = low-shelf boost in dB, gain = roar loudness
-  const TUNE = { v8: { lp: 0.42, bass: 16, gain: 1.5 } };
-  const SAMPLES = {}; Object.keys(FILES).forEach(id => { SAMPLES[id] = { name: FILES[id], ...({ lp: 0.5, bass: 14, gain: 1.4 }), ...(TUNE[id] || {}) }; });
-  const sampleBuf = {};
+  const TUNE = { v8: { lp: 0.42, bass: 18, gain: 0.8 }, rotary: { gain: 1.9 } };
+  const SAMPLES = {}; Object.keys(FILES).forEach(id => { SAMPLES[id] = { name: FILES[id], ...({ lp: 0.5, bass: 16, gain: 0.8 }), ...(TUNE[id] || {}) }; });
+  const sampleBuf = {}, sampleInfo = {};
+  const GRAIN = 0.34, HOP = 0.15;                       // grain length / spacing in seconds (about 2.3x overlap, Hann windows)
+  const HANN = (() => { const n = 64, c = new Float32Array(n); for (let i = 0; i < n; i++) c[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)); return c; })();
+  function fft(re, im) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < n; i += len) { let cr = 1, ci = 0; for (let k = 0; k < len / 2; k++) { const u = i + k, v = i + k + len / 2, xr = re[v] * cr - im[v] * ci, xi = re[v] * ci + im[v] * cr; re[v] = re[u] - xr; im[v] = im[u] - xi; re[u] += xr; im[u] += xi; const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } }
+    }
+  }
+  // Map every 0.2 s window of a recording to a "pitch proxy" so grains can be picked to match the current RPM (low windows = idle, high = revving)
+  function analyse(b) {
+    const d = b.getChannelData(0), sr = b.sampleRate, N = 2048, hop = Math.floor(sr * 0.2), W = [];
+    for (let s0 = 0; s0 + N <= d.length; s0 += hop) {
+      const re = new Float32Array(N), im = new Float32Array(N); let e = 0;
+      for (let i = 0; i < N; i++) { const x = d[s0 + i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / N)); re[i] = x; e += d[s0 + i] * d[s0 + i]; }
+      fft(re, im); let sum = 0, ws = 0;
+      for (let k = Math.ceil(40 * N / sr); k < 600 * N / sr; k++) { const m = Math.hypot(re[k], im[k]), f = k * sr / N; sum += m; ws += m * f; }
+      W.push({ t: s0 / sr, f: ws / (sum || 1), e: Math.sqrt(e / N) });
+    }
+    const med = W.map(w => w.e).sort((x, y) => x - y)[W.length >> 1] || 0;
+    const ok = W.filter(w => w.e >= med * 0.45).sort((x, y) => x.f - y.f);
+    const fs = ok.map(w => w.f), spread = fs.length > 4 ? fs[Math.floor(fs.length * 0.9)] / (fs[Math.floor(fs.length * 0.1)] || 1) : 1;
+    return { order: ok.map(w => w.t), spread };
+  }
   function loadSamples() {
     Object.entries(SAMPLES).forEach(([id, s]) => {
       const tryUrl = ext => fetch(`sounds/${s.name}.${ext}`).then(r => { if (!r.ok) throw 0; return r.arrayBuffer(); });
-      tryUrl('mp3').catch(() => tryUrl('wav')).then(ab => ctx.decodeAudioData(ab)).then(b => {
-        // keep the steady middle of the clip (skip start-up / tail), crossfade the ends into a seamless loop
-        const dur = b.duration, from = Math.min(1.0, dur * 0.15), to = dur - Math.min(0.8, dur * 0.1), fade = Math.min(0.6, (to - from) * 0.25);
-        const sr = b.sampleRate, a = Math.floor(from * sr), z = Math.floor(to * sr), f = Math.floor(fade * sr), len = z - a - f;
-        const out = ctx.createBuffer(b.numberOfChannels, len, sr);
-        for (let ch = 0; ch < b.numberOfChannels; ch++) {
-          const src = b.getChannelData(ch), dst = out.getChannelData(ch);
-          for (let i = 0; i < len; i++) dst[i] = src[a + i];
-          for (let i = 0; i < f; i++) { const w = i / f; dst[i] = src[a + i] * Math.sqrt(w) + src[a + len + i] * Math.sqrt(1 - w); } // equal-power crossfade tail->head
-        }
-        sampleBuf[id] = out;
+      tryUrl('wav').catch(() => tryUrl('mp3')).then(ab => ctx.decodeAudioData(ab)).then(b => {
+        if (b.duration < GRAIN * 3) return;
+        sampleInfo[id] = analyse(b); sampleBuf[id] = b;
       }).catch(() => {});
     });
   }
+  // Granular playback: overlapping Hann-windowed grains, each taken from a recording position that matches the RPM. No loop, so no repeat or seam.
   function attachSample(v, id) {
     if (v.sg || !sampleBuf[id]) return;
-    const src = ctx.createBufferSource(); src.buffer = sampleBuf[id]; src.loop = true;
+    const T = SAMPLES[id];
+    v.gbus = ctx.createGain(); v.sbus = ctx.createGain();
     v.sf = ctx.createBiquadFilter(); v.sf.type = 'lowpass'; v.sf.Q.value = 0.7;
     v.sg = ctx.createGain(); v.sg.gain.value = 0;
-    const lowB = ctx.createBiquadFilter(); lowB.type = 'lowshelf'; lowB.frequency.value = 220; lowB.gain.value = SAMPLES[id].bass; // extra bass body
-    const hiCut = ctx.createBiquadFilter(); hiCut.type = 'highshelf'; hiCut.frequency.value = 1100; hiCut.gain.value = -20; // tames the whine
-    src.connect(v.sf); v.sf.connect(lowB); lowB.connect(hiCut); hiCut.connect(v.sg); v.sg.connect(master);
-    src.start(0, Math.random() * 1); v.src.push(src); v.sgSrc = src;
+    const lowB = ctx.createBiquadFilter(); lowB.type = 'lowshelf'; lowB.frequency.value = 220; lowB.gain.value = T.bass;        // bass body
+    const hiCut = ctx.createBiquadFilter(); hiCut.type = 'highshelf'; hiCut.frequency.value = 1100; hiCut.gain.value = -20;       // tames the whine
+    v.gbus.connect(v.sf); v.sf.connect(lowB); lowB.connect(hiCut); hiCut.connect(v.sg);
+    // aggression: saturated, low-passed copy
+    const ws = ctx.createWaveShaper(); ws.curve = curve(5); ws.oversample = '2x';
+    const dlp = ctx.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 650; dlp.Q.value = 0.9;
+    const dg = ctx.createGain(); dg.gain.value = 0.45;
+    v.gbus.connect(ws); ws.connect(dlp); dlp.connect(dg); dg.connect(v.sg);
+    // sub-octave: grains played at half speed, low-passed = the chest-thumping rumble
+    const slp = ctx.createBiquadFilter(); slp.type = 'lowpass'; slp.frequency.value = 150; slp.Q.value = 0.8;
+    v.subG = ctx.createGain(); v.subG.gain.value = 0.9;
+    v.sbus.connect(slp); slp.connect(v.subG); v.subG.connect(v.sg);
+    v.sg.connect(master); v.grains = []; v.nextGrain = 0;
+  }
+  function spawnGrain(v, id, when, q, rate) {
+    const buf = sampleBuf[id], info = sampleInfo[id], n = info.order.length;
+    const k = Math.round(clamp(q + (Math.random() - 0.5) * 0.3, 0, 1) * (n - 1));
+    const off = clamp(info.order[k] + (Math.random() - 0.5) * 0.12, 0, Math.max(0, buf.duration - GRAIN * 1.7 - 0.05));
+    const mk = (bus, r) => {
+      const src = ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = r;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, when); g.gain.setValueCurveAtTime(HANN, when, GRAIN);
+      src.connect(g); g.connect(bus); src.start(when, off); src.stop(when + GRAIN + 0.03); return src;
+    };
+    v.grains.push({ a: mk(v.gbus, rate), b: mk(v.sbus, rate * 0.5), end: when + GRAIN + 0.03 });
   }
 
   // ---------- Voice (one per car) ----------
@@ -165,14 +204,14 @@
   function pop(when, amp = 0.55, fq = 800) {
     const src = ctx.createBufferSource(); src.buffer = noiseBuf;
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fq * (0.7 + Math.random() * 0.6); bp.Q.value = 0.9;
-    const g = ctx.createGain(); g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(amp, when + 0.002);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(amp * 1.5, when + 0.002);
     g.gain.exponentialRampToValueAtTime(0.001, when + 0.07 + Math.random() * 0.05);
     src.connect(bp); bp.connect(g); g.connect(master); src.start(when, Math.random() * 1.5, 0.15);
-    const o = ctx.createOscillator(); o.frequency.setValueAtTime(140, when); o.frequency.exponentialRampToValueAtTime(45, when + 0.08);
-    const og = ctx.createGain(); og.gain.setValueAtTime(amp * 0.5, when); og.gain.exponentialRampToValueAtTime(0.001, when + 0.1);
-    o.connect(og); og.connect(master); o.start(when); o.stop(when + 0.12);
+    const o = ctx.createOscillator(); o.frequency.setValueAtTime(170, when); o.frequency.exponentialRampToValueAtTime(38, when + 0.1);
+    const og = ctx.createGain(); og.gain.setValueAtTime(amp * 0.95, when); og.gain.exponentialRampToValueAtTime(0.001, when + 0.14);
+    o.connect(og); og.connect(master); o.start(when); o.stop(when + 0.16);
   }
-  function pops(n) { const t = ctx.currentTime; let at = t + 0.03; n = Math.ceil(n * 1.6); for (let i = 0; i < n; i++) { pop(at, 0.5 + Math.random() * 0.5, 500 + Math.random() * 900); at += 0.04 + Math.random() * 0.11; } }
+  function pops(n) { const t = ctx.currentTime; let at = t + 0.03, gap = 0.05; n = Math.ceil(n * 1.4); for (let i = 0; i < n; i++) { pop(at, 0.6 + Math.random() * 0.6, 380 + Math.random() * 800); gap = clamp(gap * (0.85 + Math.random() * 0.5) + (i > n * 0.6 ? 0.02 : 0), 0.03, 0.2); at += gap; } } // rapid crackle that thins out
   function blowOff(amp) {
     const t = ctx.currentTime, src = ctx.createBufferSource(); src.buffer = noiseBuf;
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.4;
@@ -197,21 +236,21 @@
     const v = voice, p = v.p, t = ctx.currentTime, car = d.car;
     const rpmF = clamp(d.rpm / car.redline, 0, 1.05), thr = clamp(d.throttle, 0, 1);
     const load = d.sweeping ? 0.9 : clamp(thr * 1.25 + (d.speed > 1 ? 0.1 : 0), 0, 1);
-    const on = d.running && d.rpm > 5;
+    const on = d.running && d.rpm > 5, pp = !p.ev;
     master.gain.setTargetAtTime(clamp(d.volume, 0, 1) * 0.9, t, 0.05);
 
     // events: shift, lift-off
     if (on && d.gear !== prev.gear && !d.sweeping) {
       v.dipUntil = t + 0.09;
-      if (p.pops && d.gear > prev.gear && load > 0.4) pops(1 + (Math.random() > 0.6));
-      if (p.pops && d.gear < prev.gear) pops(2);
+      if (pp && d.gear > prev.gear && load > 0.4) pops(1 + (Math.random() > 0.5));
+      if (pp && d.gear < prev.gear) pops(3 + Math.floor(Math.random() * 3));
     }
     if (on && prev.thr > 0.35 && thr < 0.12 && rpmF > 0.35 && t > prev.lift + 0.7) {
       prev.lift = t;
       if (p.turbo) blowOff(0.3 * p.turbo);
-      if (p.pops) pops(2 + Math.floor(Math.random() * 4));
+      if (pp) pops(5 + Math.floor(Math.random() * 6));
     }
-    if (on && p.pops && thr < 0.05 && rpmF > 0.4 && d.speed > 20 && Math.random() < 0.08) pop(t, 0.4 + Math.random() * 0.5, 600);
+    if (on && pp && thr < 0.05 && rpmF > 0.35 && d.speed > 15 && Math.random() < 0.16) pop(t, 0.55 + Math.random() * 0.6, 450 + Math.random() * 500); // burble on the overrun
     prev.gear = d.gear; prev.thr = thr; prev.running = on;
 
     // engine level
@@ -220,15 +259,22 @@
     const sampled = !!SAMPLES[car.id] && !!sampleBuf[car.id];
     if (sampled) attachSample(v, car.id);
     // with a recording present the synth only supports it (low-end body), the recording carries the sound
-    const level = on ? (0.3 + 0.35 * rpmF + 0.4 * load) * (p.level || 1) * limiter * dip * (sampled ? 0.55 : 1) : 0;
+    const level = on ? (0.3 + 0.35 * rpmF + 0.4 * load) * (p.level || 1) * limiter * dip * (sampled ? 0.6 : 1) : 0;
     v.out.gain.setTargetAtTime(level, t, 0.03);
     if (sampled && v.sg) {
       // quiet at idle -> loud roar as revs/speed climb
       const roar = (0.05 + 0.95 * Math.pow(rpmF, 1.6)) * (0.35 + 0.65 * load);
       v.sg.gain.setTargetAtTime(on ? roar * 1.6 * SAMPLES[car.id].gain * limiter * dip : 0, t, 0.05);
-      // small pitch range + dark filter = deep growl instead of a high buzz
-      v.sgSrc.playbackRate.setTargetAtTime(0.78 + rpmF * 0.42, t, 0.08);
+      // pitch range is wide for steady recordings (they carry no rev information), narrow for recordings that already sweep
+      const info = sampleInfo[car.id], steady = clamp(1 - (info.spread - 1) / 0.9, 0.3, 1);
+      const rate = 1 - 0.24 * steady + rpmF * 0.46 * steady;
       v.sf.frequency.setTargetAtTime((500 + rpmF * 1300 + load * 600) * SAMPLES[car.id].lp, t, 0.06);
+      v.subG.gain.setTargetAtTime(0.55 + 0.6 * load, t, 0.08);
+      if (on) { v.nextGrain = Math.max(v.nextGrain, t); while (v.nextGrain < t + 0.12) { spawnGrain(v, car.id, v.nextGrain, rpmF, rate); v.nextGrain += HOP; } }
+      for (let i = v.grains.length - 1; i >= 0; i--) {
+        const g = v.grains[i]; if (g.end < t) { v.grains.splice(i, 1); continue; }
+        g.a.playbackRate.setTargetAtTime(rate, t, 0.04); g.b.playbackRate.setTargetAtTime(rate * 0.5, t, 0.04);
+      }
     }
 
     if (p.ev) {
@@ -257,7 +303,7 @@
     const gk = 0.35 + p.sub * 0.8 + (p.drive > 2.5 ? 0.2 : 0);
     v.gr.frequency.setTargetAtTime(f / 2, t, 0.025); v.grm.frequency.setTargetAtTime(f, t, 0.025);
     v.grLp.frequency.setTargetAtTime(sampled ? 240 + rpmF * 260 + load * 120 : 260 + rpmF * 900 + load * 700, t, 0.05);
-    v.grOut.gain.setTargetAtTime(on ? gk * (0.35 + 0.65 * load) * (1 - rpmF * 0.3) * (sampled ? 1.8 : 1) : 0, t, 0.04);
+    v.grOut.gain.setTargetAtTime(on ? gk * (0.35 + 0.65 * load) * (1 - rpmF * 0.3) * (sampled ? 2.4 : 1) : 0, t, 0.04);
     v.rm.frequency.setTargetAtTime(f, t, 0.025);
     v.rbp.frequency.setTargetAtTime(500 + rpmF * 1500 + load * 600, t, 0.05);
     v.rg.gain.setTargetAtTime(on ? p.noise * 0.35 * (0.1 + 0.9 * load) * (0.4 + rpmF) * (sampled ? 0.15 : 1) : 0, t, 0.04);
