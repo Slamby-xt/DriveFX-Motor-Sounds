@@ -62,8 +62,8 @@
   // Drop a file named like the brand into sounds/ (mp3 or wav) and it is picked up automatically; cars without a file keep the synth.
   const FILES = { flat6: 'porsche', v8: 'dodge', v12: 'ferrari', rally: 'mitsubishi', v10: 'lamborghini', i6t: 'bmw', boxer: 'subaru', rotary: 'mazda', hearse: 'cadillac' };
   // per-car tuning: lp = how much of the highs survive (lower = less whine), bass = low-shelf boost in dB, gain = roar loudness
-  const TUNE = { v8: { lp: 0.55, bass: 14, gain: 1.35 } };
-  const SAMPLES = {}; Object.keys(FILES).forEach(id => { SAMPLES[id] = { name: FILES[id], ...({ lp: 0.7, bass: 11, gain: 1.15 }), ...(TUNE[id] || {}) }; });
+  const TUNE = { v8: { lp: 0.42, bass: 16, gain: 1.9 } };
+  const SAMPLES = {}; Object.keys(FILES).forEach(id => { SAMPLES[id] = { name: FILES[id], ...({ lp: 0.5, bass: 14, gain: 1.7 }), ...(TUNE[id] || {}) }; });
   const sampleBuf = {};
   function loadSamples() {
     Object.entries(SAMPLES).forEach(([id, s]) => {
@@ -88,7 +88,7 @@
     v.sf = ctx.createBiquadFilter(); v.sf.type = 'lowpass'; v.sf.Q.value = 0.7;
     v.sg = ctx.createGain(); v.sg.gain.value = 0;
     const lowB = ctx.createBiquadFilter(); lowB.type = 'lowshelf'; lowB.frequency.value = 220; lowB.gain.value = SAMPLES[id].bass; // extra bass body
-    const hiCut = ctx.createBiquadFilter(); hiCut.type = 'highshelf'; hiCut.frequency.value = 1500; hiCut.gain.value = -12; // tames the whine
+    const hiCut = ctx.createBiquadFilter(); hiCut.type = 'highshelf'; hiCut.frequency.value = 1100; hiCut.gain.value = -20; // tames the whine
     src.connect(v.sf); v.sf.connect(lowB); lowB.connect(hiCut); hiCut.connect(v.sg); v.sg.connect(master);
     src.start(0, Math.random() * 1); v.src.push(src); v.sgSrc = src;
   }
@@ -105,10 +105,16 @@
     noise.connect(v.nbp); v.nbp.connect(v.ng); v.ng.connect(out); add(noise);
 
     if (p.ev) {
-      v.ev = [[1, 'sine', .5], [2, 'triangle', .28], [3, 'sine', .16], [4.02, 'triangle', .09]].map(([m, type, a]) => {
+      // Electric motor: deep sub body + main whine with harmonics + slightly detuned twin (shimmer) + faint inverter tone
+      v.evlp = ctx.createBiquadFilter(); v.evlp.type = 'lowpass'; v.evlp.Q.value = 1.1;
+      const evBody = ctx.createBiquadFilter(); evBody.type = 'peaking'; evBody.frequency.value = 70; evBody.gain.value = 8; evBody.Q.value = 1;
+      v.evlp.connect(evBody); evBody.connect(out);
+      v.ev = [[0.5, 'sine', .42], [1, 'sine', .4], [1.006, 'sine', .22], [2, 'triangle', .16], [3, 'sine', .08], [5.01, 'sine', .03]].map(([m, type, a]) => {
         const o = ctx.createOscillator(); o.type = type; const g = ctx.createGain(); g.gain.value = a;
-        o.connect(g); g.connect(out); add(o); return { o, m };
+        o.connect(g); g.connect(v.evlp); add(o); return { o, m };
       });
+      v.inv = ctx.createOscillator(); v.inv.type = 'sine'; v.invG = ctx.createGain(); v.invG.gain.value = 0;
+      v.inv.connect(v.invG); v.invG.connect(out); add(v.inv);
       return v;
     }
     const wave = ctx.createPeriodicWave(new Float32Array(p.harm.length + 1), Float32Array.from([0, ...p.harm]));
@@ -214,7 +220,7 @@
     const sampled = !!SAMPLES[car.id] && !!sampleBuf[car.id];
     if (sampled) attachSample(v, car.id);
     // with a recording present the synth only supports it (low-end body), the recording carries the sound
-    const level = on ? (0.3 + 0.35 * rpmF + 0.4 * load) * (p.level || 1) * limiter * dip * (sampled ? 0.06 : 1) : 0;
+    const level = on ? (0.3 + 0.35 * rpmF + 0.4 * load) * (p.level || 1) * limiter * dip * (sampled ? 0.55 : 1) : 0;
     v.out.gain.setTargetAtTime(level, t, 0.03);
     if (sampled && v.sg) {
       // quiet at idle -> loud roar as revs/speed climb
@@ -226,27 +232,35 @@
     }
 
     if (p.ev) {
-      const f = d.rpm / 60 * 6;
-      v.ev.forEach(e => e.o.frequency.setTargetAtTime(Math.max(20, f * e.m), t, 0.03));
-      v.ng.gain.setTargetAtTime(on ? 0.02 + 0.05 * rpmF : 0, t, 0.05); v.nbp.frequency.setTargetAtTime(2500 + rpmF * 3000, t, 0.05);
+      const f = 38 + d.rpm / 60 * 3.2, spd = clamp(d.speed / 220, 0, 1.2);
+      const lift = d.speed > 8 && thr < 0.1; // regen: whine hangs on and falls as you slow
+      v.ev.forEach(e => e.o.frequency.setTargetAtTime(Math.max(20, f * e.m), t, lift ? 0.18 : 0.04));
+      v.evlp.frequency.setTargetAtTime(420 + rpmF * 1400 + load * 900, t, 0.06);
+      v.inv.frequency.setTargetAtTime(2200 + rpmF * 2600, t, 0.05);
+      v.invG.gain.setTargetAtTime(on ? 0.008 + 0.02 * load * rpmF : 0, t, 0.08);
+      // tyre/wind rush grows with speed
+      v.ng.gain.setTargetAtTime(on ? 0.01 + 0.16 * spd * spd : 0, t, 0.1); v.nbp.frequency.setTargetAtTime(350 + spd * 900, t, 0.1);
+      v.out.gain.setTargetAtTime(on ? (0.22 + 0.9 * Math.pow(rpmF, 0.8) + 0.35 * load) * (lift ? 0.8 : 1) : 0, t, 0.05);
       return;
     }
     const f = Math.max(10, d.rpm / 60 * p.cyl / 2);
     v.osc.frequency.setTargetAtTime(f, t, 0.025); v.osc2.frequency.setTargetAtTime(f, t, 0.025); v.sub.frequency.setTargetAtTime(f / 2, t, 0.025);
     v.lfo.frequency.setTargetAtTime(2 + d.rpm / 500, t, 0.1);
     v.lfoG.gain.setTargetAtTime(f * 0.035 * p.lope * clamp(1 - rpmF * 1.6, 0, 1), t, 0.1);
-    v.lp.frequency.setTargetAtTime((500 + rpmF * 2200 + load * 2200) * p.bright * 0.7, t, 0.04); // darker = less whine
+    // with a recording present, the synth becomes a low-only roar layer (deep growl under the sample, no whine)
+    const lowOnly = sampled ? 0.35 : 1;
+    v.lp.frequency.setTargetAtTime(sampled ? 380 + rpmF * 220 : (500 + rpmF * 2200 + load * 2200) * p.bright * 0.7, t, 0.04);
     v.lp.Q.setTargetAtTime(0.8 + load * 2, t, 0.05);
     v.nbp.frequency.setTargetAtTime(400 + rpmF * 2200, t, 0.05);
-    v.ng.gain.setTargetAtTime(on ? p.noise * (0.03 + 0.2 * load * rpmF) : 0, t, 0.05);
+    v.ng.gain.setTargetAtTime(on ? p.noise * (0.03 + 0.2 * load * rpmF) * lowOnly : 0, t, 0.05);
     // growl + rasp follow firing rate; louder under load (the harder you push, the louder it roars)
     const gk = 0.35 + p.sub * 0.8 + (p.drive > 2.5 ? 0.2 : 0);
     v.gr.frequency.setTargetAtTime(f / 2, t, 0.025); v.grm.frequency.setTargetAtTime(f, t, 0.025);
-    v.grLp.frequency.setTargetAtTime(260 + rpmF * 900 + load * 700, t, 0.05);
-    v.grOut.gain.setTargetAtTime(on ? gk * (0.35 + 0.65 * load) * (1 - rpmF * 0.3) : 0, t, 0.04);
+    v.grLp.frequency.setTargetAtTime(sampled ? 240 + rpmF * 260 + load * 120 : 260 + rpmF * 900 + load * 700, t, 0.05);
+    v.grOut.gain.setTargetAtTime(on ? gk * (0.35 + 0.65 * load) * (1 - rpmF * 0.3) * (sampled ? 1.8 : 1) : 0, t, 0.04);
     v.rm.frequency.setTargetAtTime(f, t, 0.025);
     v.rbp.frequency.setTargetAtTime(500 + rpmF * 1500 + load * 600, t, 0.05);
-    v.rg.gain.setTargetAtTime(on ? p.noise * 0.35 * (0.1 + 0.9 * load) * (0.4 + rpmF) : 0, t, 0.04);
+    v.rg.gain.setTargetAtTime(on ? p.noise * 0.35 * (0.1 + 0.9 * load) * (0.4 + rpmF) * (sampled ? 0.15 : 1) : 0, t, 0.04);
     if (p.turbo) {
       v.turbo.frequency.setTargetAtTime(1500 + rpmF * 4500, t, 0.1);
       v.tg.gain.setTargetAtTime(on ? p.turbo * load * rpmF * rpmF * 0.02 : 0, t, 0.25); // spool lag
