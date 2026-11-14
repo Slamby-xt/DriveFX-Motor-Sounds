@@ -21,7 +21,8 @@ function ask(q) {
       for (const ch of c) {
         if (ch === '\r' || ch === '\n') { stdin.setRawMode?.(false); stdin.pause(); stdin.off('data', on); process.stdout.write('\n'); return res(s); }
         if (ch === '\u0003') process.exit(1);
-        if (ch === '\u007f' || ch === '\b') s = s.slice(0, -1); else s += ch;
+        if (ch === '\u007f' || ch === '\b') { if (s) { s = s.slice(0, -1); process.stdout.write('\b \b'); } }
+        else { s += ch; process.stdout.write('*'); } // show a * per typed character
       }
     };
     stdin.on('data', on);
