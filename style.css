@@ -216,3 +216,4 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 .pw-key input:focus{outline:2px solid var(--accent,#00e5ff);outline-offset:1px}
 .pw-msg{min-height:20px;margin-top:10px;font:600 14px var(--f-body,Rajdhani,sans-serif);color:#9fb0c8}
 .pw-msg.ok{color:var(--ok,#27f0a0)}.pw-msg.err{color:#ff6b7f}
+.pw-check{width:100%;padding:13px;border:0;border-radius:10px;background:var(--accent,#00e5ff);color:#04050a;font:800 12px var(--f-display);letter-spacing:.16em;cursor:pointer}

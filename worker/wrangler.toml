@@ -1,0 +1,8 @@
+name = "drivefx-licenses"
+main = "index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "LICENSES"
+id = "b9471f7f11f448e78946ffd4e6ca5981"

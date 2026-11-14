@@ -1,18 +1,20 @@
-/* DriveFX paywall — 5-minute free trial, then a signed license key (issued by you with tools/license.mjs) unlocks the engine.
-   Each browser gets a device ID (DFX-XXXX-XXXX). The customer sends you that ID, you generate a key for it, they paste it in.
-   Keys are verified in the browser with a public key, so they cannot be forged without your private key. */
+/* DriveFX paywall — 5-minute free trial, then a subscription that YOU switch on from the admin panel.
+   Each browser gets a device ID (DFX-XXXX-XXXX). The customer sends you that ID, you activate it in the admin panel,
+   and this page unlocks by itself (it asks the license server, no key to type). */
 (() => {
   'use strict';
   // ======== SETTINGS (edit these) ========
   const TRIAL_SECONDS = 5 * 60;                 // free engine time per device
   const CONTACT = 'Message us to subscribe';    // text shown to the customer, e.g. 'Telegram: @yourname  ·  email: you@mail.com'
-  const PUBLIC_KEY = { kty: 'EC', x: 'CksdFWJCd_3dFluA2K6dSyDm2sskF7POfynTFM2ZXhU', y: '4EgqooF2fgrqJyseZ3w0y2-MRE95FLRB26PQs1GFTyQ', crv: 'P-256' };
+  const API = 'https://drivefx-licenses.xtdanik.workers.dev';
+  const OFFLINE_GRACE_DAYS = 7;                 // keep a known subscription working this long if the server can't be reached
   // =======================================
 
-  const K = { id: 'dfx_id', used: 'dfx_used', lic: 'dfx_lic' };
+  const K = { id: 'dfx_id', used: 'dfx_used', sub: 'dfx_sub' };
   const ls = {
     get: k => { try { return localStorage.getItem(k); } catch { return null; } },
     set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+    del: k => { try { localStorage.removeItem(k); } catch {} },
   };
   // the trial counter is mirrored in a cookie so a simple "clear site data" of localStorage alone does not reset it
   const cookie = {
@@ -21,6 +23,7 @@
   };
   const read = k => { const a = ls.get(k), b = cookie.get(k); return a === null ? b : b === null ? a : (k === K.used ? String(Math.max(+a || 0, +b || 0)) : a); };
   const write = (k, v) => { ls.set(k, v); cookie.set(k, v); };
+  ls.del('dfx_lic'); // old signed-key system
 
   // ---- device ID ----
   const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -30,32 +33,32 @@
     return `DFX-${s.slice(0, 4)}-${s.slice(4)}`;
   }
   let deviceId = read(K.id);
-  if (!/^DFX-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(deviceId || '')) { deviceId = makeId(); }
+  if (!/^DFX-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(deviceId || '')) deviceId = makeId();
   write(K.id, deviceId);
-
-  // ---- license verification (ECDSA P-256 / SHA-256, public key only) ----
-  const b64uToBytes = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-  let pubKey = null;
-  async function verify(key) {
-    try {
-      const [body, sig] = String(key).trim().split('.');
-      if (!body || !sig) return { ok: false, why: 'That does not look like a license key.' };
-      pubKey = pubKey || await crypto.subtle.importKey('jwk', PUBLIC_KEY, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-      const good = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pubKey, b64uToBytes(sig), new TextEncoder().encode(body));
-      if (!good) return { ok: false, why: 'Invalid license key.' };
-      const p = JSON.parse(new TextDecoder().decode(b64uToBytes(body)));
-      if (p.id !== deviceId) return { ok: false, why: 'This key was issued for a different device ID.' };
-      if (p.exp && p.exp * 1000 < Date.now()) return { ok: false, why: 'This license has expired.', expired: true };
-      return { ok: true, exp: p.exp };
-    } catch { return { ok: false, why: 'Could not verify the key (is the page open over HTTPS?).' }; }
-  }
 
   // ---- state ----
   let used = +read(K.used) || 0;     // seconds of engine time used in the trial
-  let lic = { ok: false };           // current verified license
+  let lic = { ok: false };           // current subscription: { ok, exp } (exp 0 = lifetime)
   const left = () => Math.max(0, TRIAL_SECONDS - used);
-  const unlocked = () => lic.ok;
+  const unlocked = () => lic.ok && (lic.exp === 0 || lic.exp * 1000 > Date.now());
   const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+  // ---- ask the license server ----
+  let lastResult = '';
+  async function check() {
+    try {
+      const r = await fetch(`${API}/status?id=${encodeURIComponent(deviceId)}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error('http ' + r.status);
+      const j = await r.json();
+      if (j.active) { lic = { ok: true, exp: j.exp }; write(K.sub, JSON.stringify({ exp: j.exp, at: Date.now() })); }
+      else { lic = { ok: false }; ls.del(K.sub); cookie.set(K.sub, ''); }
+      lastResult = j.active ? 'active' : 'inactive';
+    } catch {
+      lastResult = 'offline'; // keep whatever we already knew (cached subscription, see boot)
+    }
+    refresh();
+    return lastResult;
+  }
 
   // ---- UI ----
   const chips = document.querySelector('.chips');
@@ -73,25 +76,38 @@
       <h2 id="pwTitle">Your free trial is over</h2>
       <p id="pwText">You have used your 5 free minutes. Subscribe to keep using DriveFX engine sounds.</p>
       <div class="pw-id"><small>YOUR ID</small><b id="pwId"></b><button id="pwCopy" type="button">COPY</button></div>
-      <p class="pw-how"><span id="pwContact"></span><br>Send us your ID — we will reply with a license key.</p>
-      <div class="pw-key"><input id="pwKey" placeholder="Paste license key here" autocomplete="off" spellcheck="false"><button id="pwGo" type="button">ACTIVATE</button></div>
+      <p class="pw-how"><span id="pwContact"></span><br>Send us your ID — as soon as we activate it, this window unlocks by itself.</p>
+      <button class="pw-check" id="pwCheck" type="button">CHECK SUBSCRIPTION</button>
       <div class="pw-msg" id="pwMsg" role="status"></div>
     </div>`;
   document.body.appendChild(modal);
   const $ = id => modal.querySelector('#' + id);
   $('pwId').textContent = deviceId; $('pwContact').textContent = CONTACT;
 
+  let poll = null;
   function show(mode) {
-    // mode: 'ended' (trial over) | 'manage' (user opened it from the chip)
+    // mode: 'ended' (trial over) | 'manage' (opened from the badge)
     const ended = mode === 'ended';
-    $('pwBadge').textContent = unlocked() ? 'SUBSCRIPTION ACTIVE' : ended ? 'FREE TRIAL ENDED' : 'FREE TRIAL';
-    $('pwTitle').textContent = unlocked() ? 'You are subscribed' : ended ? 'Your free trial is over' : `Free trial: ${fmt(left())} left`;
-    $('pwText').textContent = unlocked() ? (lic.exp ? 'Active until ' + new Date(lic.exp * 1000).toLocaleDateString() + '.' : 'Lifetime access.')
+    const act = unlocked();
+    $('pwBadge').textContent = act ? 'SUBSCRIPTION ACTIVE' : ended ? 'FREE TRIAL ENDED' : 'FREE TRIAL';
+    $('pwTitle').textContent = act ? 'You are subscribed' : ended ? 'Your free trial is over' : `Free trial: ${fmt(left())} left`;
+    $('pwText').textContent = act ? (lic.exp ? 'Active until ' + new Date(lic.exp * 1000).toLocaleDateString() + '.' : 'Lifetime access.')
       : ended ? 'You have used your 5 free minutes. Subscribe to keep using DriveFX engine sounds.' : 'Subscribe any time to remove the time limit.';
+    $('pwCheck').style.display = act ? 'none' : '';
     $('pwMsg').textContent = ''; $('pwMsg').className = 'pw-msg';
     modal.hidden = false;
+    clearInterval(poll);
+    if (!act) poll = setInterval(() => manualCheck(true), 5000); // unlocks by itself once you activate the ID
   }
-  const hide = () => { modal.hidden = true; };
+  const hide = () => { modal.hidden = true; clearInterval(poll); };
+  async function manualCheck(quiet) {
+    if (!quiet) { $('pwMsg').className = 'pw-msg'; $('pwMsg').textContent = 'Checking…'; }
+    const r = await check();
+    if (r === 'active') { $('pwMsg').className = 'pw-msg ok'; $('pwMsg').textContent = 'Activated! Enjoy.'; clearInterval(poll); setTimeout(hide, 1200); }
+    else if (r === 'offline') { if (!quiet) { $('pwMsg').className = 'pw-msg err'; $('pwMsg').textContent = 'Cannot reach the server. Check your connection.'; } }
+    else if (!quiet) { $('pwMsg').className = 'pw-msg'; $('pwMsg').textContent = 'Not activated yet. Send us your ID, then press again.'; }
+  }
+  $('pwCheck').onclick = () => manualCheck(false);
   $('pwClose').onclick = hide;
   modal.addEventListener('pointerdown', e => { if (e.target === modal) hide(); });
   addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) hide(); });
@@ -99,15 +115,6 @@
     try { await navigator.clipboard.writeText(deviceId); $('pwCopy').textContent = 'COPIED'; } catch { $('pwCopy').textContent = 'SELECT & COPY'; }
     setTimeout(() => $('pwCopy').textContent = 'COPY', 1800);
   };
-  async function activate() {
-    const key = $('pwKey').value.trim(); if (!key) return;
-    $('pwMsg').className = 'pw-msg'; $('pwMsg').textContent = 'Checking…';
-    const r = await verify(key);
-    if (r.ok) { lic = r; write(K.lic, key); $('pwMsg').className = 'pw-msg ok'; $('pwMsg').textContent = 'Activated! Enjoy.'; refresh(); setTimeout(hide, 900); }
-    else { $('pwMsg').className = 'pw-msg err'; $('pwMsg').textContent = r.why; }
-  }
-  $('pwGo').onclick = activate;
-  $('pwKey').addEventListener('keydown', e => { if (e.key === 'Enter') activate(); });
 
   let shown = '';
   function refresh() {
@@ -122,13 +129,13 @@
     if (st + html !== shown) { shown = st + html; chip.dataset.state = st; chipTxt.textContent = html.replace('<i></i>', ''); }
   }
   // open the window on tap/click (the badge's inner nodes are never replaced, so a tap can't be lost while the timer ticks)
-  const openFromChip = e => { if (e) e.preventDefault(); show(!unlocked() && left() <= 0 ? 'ended' : 'manage'); };
+  const openFromChip = e => { if (e) e.preventDefault(); show(!unlocked() && left() <= 0 ? 'ended' : 'manage'); if (!unlocked()) manualCheck(true); };
   chip.addEventListener('click', openFromChip);
 
   // ---- gate used by app.js before starting the engine ----
   function gate() {
     if (unlocked() || left() > 0) return true;
-    show('ended'); return false;
+    show('ended'); manualCheck(true); return false;
   }
 
   // ---- count engine time ----
@@ -139,19 +146,23 @@
     used += dt; saveT += dt;
     if (saveT > 2) { saveT = 0; write(K.used, used.toFixed(1)); }
     refresh();
-    if (left() <= 0) { write(K.used, used.toFixed(1)); window.DriveFX.stop(); show('ended'); }
+    if (left() <= 0) { write(K.used, used.toFixed(1)); window.DriveFX.stop(); show('ended'); manualCheck(true); }
   }
 
-  async function boot() {
+  function boot() {
     if (!window.DriveFX) return requestAnimationFrame(boot);
     window.DriveFX.gate = gate;
     window.DriveFX.onFrame(tick);
     addEventListener('pagehide', () => write(K.used, used.toFixed(1)));
-    const saved = read(K.lic);
-    if (saved) { const r = await verify(saved); if (r.ok) lic = r; }
+    // known subscription keeps working instantly (and offline for a while); the server then confirms or revokes it
+    try {
+      const c = JSON.parse(read(K.sub) || 'null');
+      if (c && (c.exp === 0 || c.exp * 1000 > Date.now()) && Date.now() - c.at < OFFLINE_GRACE_DAYS * 864e5) lic = { ok: true, exp: c.exp };
+    } catch {}
     refresh();
-    // expiry check while the page stays open
-    setInterval(() => { if (lic.ok && lic.exp && lic.exp * 1000 < Date.now()) { lic = { ok: false }; refresh(); } }, 30000);
+    check();
+    setInterval(check, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
   }
   boot();
 })();

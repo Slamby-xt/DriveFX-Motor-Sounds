@@ -1,4 +1,7 @@
 .claude/
-# SECRET: license signing key and issued-keys log — never commit
+# SECRET: never commit
 tools/private-key.json
 tools/issued.json
+tools/admin-token.txt
+worker/.wrangler/
+worker/node_modules/
