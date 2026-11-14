@@ -39,6 +39,9 @@ td button{padding:6px 10px;border-radius:8px;border:1px solid var(--line);backgr
     <div id="customBox" class="hide" style="margin-top:10px"><label>NUMBER OF DAYS</label><input type="number" id="custom" min="1" max="3650" value="30"></div>
     <label class="opt"><input type="checkbox" id="extend"> Add to the current subscription instead of starting from today</label>
     <button class="go" id="go">ACTIVATE</button><div class="msg" id="msg"></div></div>
+  <div class="card"><label>CANCEL A SUBSCRIPTION</label>
+    <div class="idrow"><input type="text" id="rid" name="cancel-ref" placeholder="DFX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other" style="text-transform:uppercase;font-size:20px"><button type="button" id="rPaste" class="pasteBtn">PASTE</button></div>
+    <button class="go" id="rGo" style="background:var(--err)">CANCEL SUBSCRIPTION</button><div class="msg" id="rmsg"></div></div>
   <div class="card"><label>SUBSCRIPTIONS</label>
     <div class="bar"><input type="text" id="q" placeholder="Search ID…" autocomplete="off" data-lpignore="true" data-1p-ignore><button id="refresh">REFRESH</button></div>
     <table><thead><tr><th>ID</th><th>PLAN</th><th>STATUS</th><th></th></tr></thead><tbody id="hist"></tbody></table></div>
@@ -133,6 +136,22 @@ $('#hist').onclick = async e => {
     await load();
   } catch (err) { if (err.status === 401) lock(); else alert(err.message); }
 };
+// ---------- cancel by ID ----------
+function rMsg(t, ok) { const m = $('#rmsg'); m.textContent = t; m.className = 'msg' + (ok ? ' ok' : ''); }
+$('#rid').addEventListener('paste', e => { const t = (e.clipboardData || window.clipboardData).getData('text'); e.preventDefault(); $('#rid').value = normId(t); rMsg('', true); });
+$('#rid').addEventListener('blur', () => { $('#rid').value = normId($('#rid').value); });
+$('#rPaste').onclick = async () => { try { $('#rid').value = normId(await navigator.clipboard.readText()); rMsg('', true); } catch { rMsg('Browser blocked the clipboard — paste into the field manually.', false); } $('#rid').focus(); };
+async function cancelSub() {
+  if (!token) return lock();
+  const id = normId($('#rid').value); $('#rid').value = id;
+  if (!/^DFX-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(id)) return rMsg('ID must look like DFX-XXXX-XXXX.', false);
+  if (!confirm('Cancel the subscription for ' + id + '? It stops working on their device right away.')) return;
+  const btn = $('#rGo'); btn.disabled = true;
+  try { await api('/revoke', { id }); rMsg(`Done: the subscription for ${id} is cancelled.`, true); $('#rid').value = ''; await load(); }
+  catch (e) { if (e.status === 401) return lock(); rMsg(e.message, false); }
+  btn.disabled = false;
+}
+$('#rGo').onclick = cancelSub; $('#rid').addEventListener('keydown', e => { if (e.key === 'Enter') cancelSub(); });
 $('#pw').focus();
 })();
 </script></body></html>
