@@ -7,3 +7,4 @@ worker/.wrangler/
 worker/node_modules/
 _candidates/
 _processed/
+_incoming/
