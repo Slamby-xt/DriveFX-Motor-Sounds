@@ -60,7 +60,8 @@
   // ---- UI ----
   const chips = document.querySelector('.chips');
   const chip = document.createElement('button');
-  chip.className = 'chip'; chip.id = 'chipPlan'; chip.title = 'Subscription';
+  chip.className = 'chip'; chip.id = 'chipPlan'; chip.type = 'button'; chip.title = 'Tap to see your trial / subscription';
+  chip.innerHTML = '<i></i><span></span>'; const chipTxt = chip.querySelector('span');
   if (chips) chips.insertBefore(chip, chips.firstChild);
 
   const modal = document.createElement('div');
@@ -114,9 +115,11 @@
     if (unlocked()) { st = 'ok'; html = '<i></i>PRO' + (lic.exp ? ' · ' + Math.max(1, Math.ceil((lic.exp * 1000 - Date.now()) / 86400000)) + 'D' : ' · LIFETIME'); }
     else if (left() > 0) { st = left() < 60 ? 'warn' : 'wait'; html = '<i></i>TRIAL ' + fmt(left()); }
     else { st = 'off'; html = '<i></i>TRIAL ENDED'; }
-    if (st + html !== shown) { shown = st + html; chip.dataset.state = st; chip.innerHTML = html; }
+    if (st + html !== shown) { shown = st + html; chip.dataset.state = st; chipTxt.textContent = html.replace('<i></i>', ''); }
   }
-  chip.onclick = () => show(!unlocked() && left() <= 0 ? 'ended' : 'manage');
+  // open the window on tap/click (the badge's inner nodes are never replaced, so a tap can't be lost while the timer ticks)
+  const openFromChip = e => { if (e) e.preventDefault(); show(!unlocked() && left() <= 0 ? 'ended' : 'manage'); };
+  chip.addEventListener('click', openFromChip);
 
   // ---- gate used by app.js before starting the engine ----
   function gate() {
