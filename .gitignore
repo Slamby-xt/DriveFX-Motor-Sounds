@@ -5,3 +5,5 @@ tools/issued.json
 tools/admin-token.txt
 worker/.wrangler/
 worker/node_modules/
+_candidates/
+_processed/
