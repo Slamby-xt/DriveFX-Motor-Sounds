@@ -9,7 +9,7 @@
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px;box-shadow:0 0 40px -18px var(--ac)}
 label{display:block;font-size:12px;letter-spacing:.16em;color:var(--mute);margin-bottom:8px}
 input[type=text],input[type=number],input[type=password]{width:100%;padding:14px;border-radius:12px;border:1px solid var(--line);background:#060a14;color:var(--tx);font:700 18px ui-monospace,Consolas,monospace;letter-spacing:.06em}
-#id{text-transform:uppercase;font-size:20px}input:focus{outline:2px solid var(--ac)}.plans{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+#id{text-transform:uppercase;font-size:20px}.mask{-webkit-text-security:disc;text-security:disc}.idrow{display:flex;gap:8px}.idrow input{flex:1;min-width:0}.pasteBtn{padding:0 18px;border-radius:12px;border:1px solid var(--ac);background:rgba(0,229,255,.1);color:var(--ac);font:800 13px inherit;letter-spacing:.12em;cursor:pointer}input:focus{outline:2px solid var(--ac)}.plans{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
 .plans button{flex:1;min-width:92px;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0a1020;color:var(--tx);font:700 14px inherit;cursor:pointer}
 .plans button.on{border-color:var(--ac);background:rgba(0,229,255,.12);color:var(--ac)}
 .go{width:100%;margin-top:14px;padding:16px;border:0;border-radius:12px;background:var(--ac);color:#04121a;font:800 15px inherit;letter-spacing:.14em;cursor:pointer}
@@ -25,12 +25,13 @@ td{padding:9px 8px;border-top:1px solid var(--line);vertical-align:middle}td.id{
 <div class="top"><div><h1>DRIVE<b>FX</b> · ADMIN</h1><p class="sub" id="sub">Locked.</p></div><button class="lock hide" id="lock">LOCK</button></div>
 
 <div class="card" id="gate">
-  <label>PASSWORD</label><input type="password" id="pw" placeholder="Enter admin password" autocomplete="current-password">
+  <label>PASSWORD</label><input type="text" id="pw" class="mask" name="adm-k" placeholder="Enter admin password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other">
   <button class="go" id="unlock">UNLOCK</button><div class="msg" id="gmsg"></div>
 </div>
 
 <div id="app" class="hide">
-  <div class="card"><label>CUSTOMER ID</label><input type="text" id="id" placeholder="DFX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+  <div class="card"><label>CUSTOMER ID</label>
+    <div class="idrow"><input type="text" id="id" name="cust-ref" placeholder="DFX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other"><button type="button" id="pasteBtn" class="pasteBtn">PASTE</button></div>
     <div class="plans" id="plans"></div>
     <div id="customBox" class="hide" style="margin-top:10px"><label>NUMBER OF DAYS</label><input type="number" id="custom" min="1" max="3650" value="30"></div>
     <button class="go" id="go">GENERATE KEY</button><div class="msg" id="msg"></div></div>
@@ -84,6 +85,11 @@ function normId(s) {
 }
 $('#id').addEventListener('paste', e => { const t = (e.clipboardData || window.clipboardData).getData('text'); e.preventDefault(); $('#id').value = normId(t); $('#msg').textContent = ''; });
 $('#id').addEventListener('blur', () => { $('#id').value = normId($('#id').value); });
+$('#id').addEventListener('input', () => { const v = $('#id').value, n = normId(v); if (n !== v && /^DFX-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(n)) $('#id').value = n; });
+$('#pasteBtn').onclick = async () => {
+  try { $('#id').value = normId(await navigator.clipboard.readText()); $('#msg').textContent = ''; $('#id').focus(); }
+  catch { $('#msg').textContent = 'Browser blocked the clipboard — long-press / right-click the field and choose Paste.'; $('#id').focus(); }
+};
 let last = null;
 async function gen() {
   $('#msg').textContent = ''; if (!signKey) return lock();
