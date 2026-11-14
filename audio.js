@@ -62,7 +62,7 @@
   // Drop a file named like the brand into sounds/ (mp3 or wav) and it is picked up automatically; cars without a file keep the synth.
   const FILES = { flat6: 'porsche', v8: 'dodge', v12: 'ferrari', rally: 'mitsubishi', v10: 'lamborghini', i6t: 'bmw', boxer: 'subaru', rotary: 'mazda', hearse: 'cadillac' };
   // per-car tuning: lp = how much of the highs survive (lower = less whine), bass = low-shelf boost in dB, gain = roar loudness
-  const TUNE = { v8: { lp: 0.42, bass: 18, gain: 0.8 }, rotary: { gain: 1.9 } };
+  const TUNE = { v8: { lp: 0.42, bass: 18, gain: 0.8 }, rotary: { gain: 2.6 } };
   const SAMPLES = {}; Object.keys(FILES).forEach(id => { SAMPLES[id] = { name: FILES[id], ...({ lp: 0.5, bass: 16, gain: 0.8 }), ...(TUNE[id] || {}) }; });
   const PURE = /[?&]pure(=1)?(&|$)/.test(location.search); // ?pure=1 -> recordings only: no synthetic sub/growl/distortion, natural highs
   const sampleBuf = {}, sampleInfo = {};
