@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer">
+<title>Admin</title>
+<style>
+:root{--bg:#05070d;--card:#0c1220;--line:#1c2740;--tx:#e8f1ff;--mute:#7f90ad;--ac:#00e5ff;--ok:#27f0a0;--err:#ff6b7f}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(1200px 600px at 70% -10%,#0d2a3a 0,transparent 60%),var(--bg);color:var(--tx);font:500 16px/1.45 system-ui,Segoe UI,sans-serif;padding:28px 16px}
+.w{max-width:760px;margin:0 auto}h1{font-size:22px;letter-spacing:.12em;margin:0 0 4px}h1 b{color:var(--ac)}.sub{color:var(--mute);margin:0 0 22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px;box-shadow:0 0 40px -18px var(--ac)}
+label{display:block;font-size:12px;letter-spacing:.16em;color:var(--mute);margin-bottom:8px}
+input[type=text],input[type=number],input[type=password]{width:100%;padding:14px;border-radius:12px;border:1px solid var(--line);background:#060a14;color:var(--tx);font:700 18px ui-monospace,Consolas,monospace;letter-spacing:.06em}
+#id{text-transform:uppercase;font-size:20px}input:focus{outline:2px solid var(--ac)}.plans{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.plans button{flex:1;min-width:92px;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0a1020;color:var(--tx);font:700 14px inherit;cursor:pointer}
+.plans button.on{border-color:var(--ac);background:rgba(0,229,255,.12);color:var(--ac)}
+.go{width:100%;margin-top:14px;padding:16px;border:0;border-radius:12px;background:var(--ac);color:#04121a;font:800 15px inherit;letter-spacing:.14em;cursor:pointer}
+.go:hover{filter:brightness(1.1)}.go[disabled]{opacity:.5;cursor:wait}.msg{margin-top:12px;min-height:20px;color:var(--err);font-weight:600}
+.hide{display:none!important}.key{width:100%;min-height:96px;padding:12px;border-radius:12px;border:1px solid var(--ok);background:#06130e;color:var(--ok);font:12px ui-monospace,Consolas,monospace;word-break:break-all;resize:vertical}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.row button{padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:#0a1020;color:var(--tx);font:700 13px inherit;cursor:pointer}
+.row button.p{background:var(--ok);border-color:var(--ok);color:#04120c}
+table{width:100%;border-collapse:collapse;font-size:14px}th{font-size:11px;letter-spacing:.14em;color:var(--mute);text-align:left;padding:6px 8px}
+td{padding:9px 8px;border-top:1px solid var(--line);vertical-align:middle}td.id{font:700 14px ui-monospace,Consolas,monospace}td button{padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:#0a1020;color:var(--tx);cursor:pointer}
+.tag{padding:3px 8px;border-radius:99px;font-size:12px;font-weight:700}.tag.on{background:rgba(39,240,160,.15);color:var(--ok)}.tag.off{background:rgba(255,107,127,.15);color:var(--err)}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.lock{padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:#0a1020;color:var(--tx);font:700 12px inherit;letter-spacing:.12em;cursor:pointer}
+</style></head><body><div class="w">
+<div class="top"><div><h1>DRIVE<b>FX</b> · ADMIN</h1><p class="sub" id="sub">Locked.</p></div><button class="lock hide" id="lock">LOCK</button></div>
+
+<div class="card" id="gate">
+  <label>PASSWORD</label><input type="password" id="pw" placeholder="Enter admin password" autocomplete="current-password">
+  <button class="go" id="unlock">UNLOCK</button><div class="msg" id="gmsg"></div>
+</div>
+
+<div id="app" class="hide">
+  <div class="card"><label>CUSTOMER ID</label><input type="text" id="id" placeholder="DFX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+    <div class="plans" id="plans"></div>
+    <div id="customBox" class="hide" style="margin-top:10px"><label>NUMBER OF DAYS</label><input type="number" id="custom" min="1" max="3650" value="30"></div>
+    <button class="go" id="go">GENERATE KEY</button><div class="msg" id="msg"></div></div>
+  <div class="card hide" id="out"><label>LICENSE KEY — send this to the customer</label><textarea class="key" id="key" readonly></textarea>
+    <div class="row"><button class="p" id="copyKey">COPY KEY</button><button id="copyMsg">COPY READY MESSAGE</button></div><div class="msg" id="outMsg" style="color:var(--ok)"></div></div>
+  <div class="card"><label>ISSUED ON THIS DEVICE</label><table><thead><tr><th>ID</th><th>PLAN</th><th>STATUS</th><th></th></tr></thead><tbody id="hist"></tbody></table></div>
+</div></div>
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const LOG = 'dfx_admin_log', IDLE = 10 * 60 * 1000;
+let signKey = null, idleT = null;
+
+// ---------- unlock: password -> AES key -> decrypt the private key held in vault.json ----------
+async function unlock() {
+  const pw = $('#pw').value; if (!pw) return;
+  const btn = $('#unlock'); btn.disabled = true; $('#gmsg').style.color = 'var(--mute)'; $('#gmsg').textContent = 'Unlocking…';
+  try {
+    let v; try { v = await (await fetch('vault.json', { cache: 'no-store' })).json(); } catch { throw new Error('NOVAULT'); }
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+    const aes = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64(v.salt), iterations: v.iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    let jwk;
+    try { jwk = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(v.iv) }, aes, b64(v.data)))); } catch { throw new Error('BADPW'); }
+    signKey = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+    $('#pw').value = ''; $('#gate').classList.add('hide'); $('#app').classList.remove('hide'); $('#lock').classList.remove('hide'); $('#sub').textContent = 'Unlocked. Locks itself after 10 minutes of inactivity.';
+    load(); $('#id').focus(); bump();
+  } catch (e) {
+    $('#gmsg').style.color = 'var(--err)';
+    $('#gmsg').textContent = e.message === 'NOVAULT' ? 'Vault not found. Run tools\\seal.bat on your computer first.' : e.message === 'BADPW' ? 'Wrong password.' : 'Could not unlock (open this page over HTTPS).';
+  }
+  btn.disabled = false;
+}
+function lock() { signKey = null; $('#app').classList.add('hide'); $('#lock').classList.add('hide'); $('#gate').classList.remove('hide'); $('#out').classList.add('hide'); $('#key').value = ''; $('#sub').textContent = 'Locked.'; $('#pw').focus(); }
+function bump() { clearTimeout(idleT); idleT = setTimeout(lock, IDLE); }
+['pointerdown', 'keydown'].forEach(e => addEventListener(e, () => signKey && bump()));
+$('#unlock').onclick = unlock; $('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); }); $('#lock').onclick = lock;
+
+// ---------- issue keys ----------
+const PLANS = [['7 days', 7], ['30 days', 30], ['90 days', 90], ['1 year', 365], ['Lifetime', 0], ['Custom', 'c']]; let plan = 30;
+$('#plans').innerHTML = PLANS.map(([t, v]) => `<button data-v="${v}" class="${v === 30 ? 'on' : ''}">${t}</button>`).join('');
+$('#plans').onclick = e => { const b = e.target.closest('button'); if (!b) return; document.querySelectorAll('#plans button').forEach(x => x.classList.remove('on')); b.classList.add('on'); plan = b.dataset.v === 'c' ? 'c' : +b.dataset.v; $('#customBox').classList.toggle('hide', plan !== 'c'); };
+const fmtPlan = d => d ? d + ' days' : 'Lifetime';
+let last = null;
+async function gen() {
+  $('#msg').textContent = ''; if (!signKey) return lock();
+  const id = $('#id').value.trim().toUpperCase();
+  if (!/^DFX-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(id)) { $('#msg').textContent = 'ID must look like DFX-XXXX-XXXX.'; return; }
+  const days = plan === 'c' ? +$('#custom').value : plan;
+  if (plan === 'c' && !(Number.isInteger(days) && days > 0 && days <= 3650)) { $('#msg').textContent = 'Enter a whole number of days (1–3650).'; return; }
+  const iat = Math.floor(Date.now() / 1000), exp = days ? iat + days * 86400 : 0;
+  const body = b64u(new TextEncoder().encode(JSON.stringify({ id, iat, exp })));
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, signKey, new TextEncoder().encode(body)); // IEEE-P1363, same format the site verifies
+  const key = body + '.' + b64u(sig);
+  last = { id, days, key, iat, exp };
+  try { const l = JSON.parse(localStorage.getItem(LOG) || '[]'); l.unshift(last); localStorage.setItem(LOG, JSON.stringify(l)); } catch {}
+  $('#key').value = key; $('#out').classList.remove('hide'); $('#outMsg').textContent = 'Done: ' + id + ' · ' + fmtPlan(days); load();
+}
+$('#go').onclick = gen; $('#id').addEventListener('keydown', e => { if (e.key === 'Enter') gen(); });
+const flash = m => $('#outMsg').textContent = m;
+const copy = async t => { try { await navigator.clipboard.writeText(t); return true; } catch { $('#key').select(); return false; } };
+$('#copyKey').onclick = async () => flash(await copy(last.key) ? 'Key copied.' : 'Select the key and copy it manually.');
+$('#copyMsg').onclick = async () => flash(await copy(`Your DriveFX subscription is ready (${fmtPlan(last.days)}).\nOpen https://drivefx.pro, click the TRIAL badge at the top, paste this key and press ACTIVATE:\n\n${last.key}`) ? 'Message copied — paste it to the customer.' : 'Select the key and copy it manually.');
+
+// ---------- history (stored only in this browser) ----------
+function status(r) { if (!r.exp) return '<span class="tag on">Lifetime</span>'; const left = Math.ceil((r.exp * 1000 - Date.now()) / 864e5); return left > 0 ? `<span class="tag on">${left}d left</span>` : '<span class="tag off">Expired</span>'; }
+function load() {
+  let l = []; try { l = JSON.parse(localStorage.getItem(LOG) || '[]'); } catch {}
+  window.__h = l;
+  $('#hist').innerHTML = l.length ? l.map((x, i) => `<tr><td class="id">${x.id}</td><td>${fmtPlan(x.days)}<br><small style="color:var(--mute)">${new Date(x.iat * 1000).toLocaleDateString()}</small></td><td>${status(x)}</td><td><button data-i="${i}">Copy key</button></td></tr>`).join('') : '<tr><td colspan="4" style="color:var(--mute)">Nothing issued yet.</td></tr>';
+}
+$('#hist').onclick = async e => { const b = e.target.closest('button'); if (!b) return; if (await copy(window.__h[+b.dataset.i].key)) { b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy key', 1200); } };
+$('#pw').focus();
+})();
+</script></body></html>
