@@ -112,7 +112,11 @@
   let shown = '';
   function refresh() {
     let st, html;
-    if (unlocked()) { st = 'ok'; html = '<i></i>PRO' + (lic.exp ? ' · ' + Math.max(1, Math.ceil((lic.exp * 1000 - Date.now()) / 86400000)) + 'D' : ' · LIFETIME'); }
+    if (unlocked()) {
+      st = 'ok';
+      const days = lic.exp ? Math.max(1, Math.ceil((lic.exp * 1000 - Date.now()) / 86400000)) : 0;
+      html = '<i></i>PRO' + (lic.exp ? ' · ' + days + (days === 1 ? ' DAY' : ' DAYS') : ' · LIFETIME');
+    }
     else if (left() > 0) { st = left() < 60 ? 'warn' : 'wait'; html = '<i></i>TRIAL ' + fmt(left()); }
     else { st = 'off'; html = '<i></i>TRIAL ENDED'; }
     if (st + html !== shown) { shown = st + html; chip.dataset.state = st; chipTxt.textContent = html.replace('<i></i>', ''); }
