@@ -75,10 +75,19 @@ const PLANS = [['7 days', 7], ['30 days', 30], ['90 days', 90], ['1 year', 365],
 $('#plans').innerHTML = PLANS.map(([t, v]) => `<button data-v="${v}" class="${v === 30 ? 'on' : ''}">${t}</button>`).join('');
 $('#plans').onclick = e => { const b = e.target.closest('button'); if (!b) return; document.querySelectorAll('#plans button').forEach(x => x.classList.remove('on')); b.classList.add('on'); plan = b.dataset.v === 'c' ? 'c' : +b.dataset.v; $('#customBox').classList.toggle('hide', plan !== 'c'); };
 const fmtPlan = d => d ? d + ' days' : 'Lifetime';
+// forgiving ID parsing: accepts pasted text with spaces, "ID:" prefixes, odd dashes, Cyrillic look-alike letters
+const LOOK = { 'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 'О': 'O', 'Р': 'P', 'С': 'C', 'Т': 'T', 'Х': 'X', 'У': 'Y' };
+function normId(s) {
+  s = String(s || '').toUpperCase().replace(/[АВЕКМНОРСТХУ]/g, c => LOOK[c]).replace(/[‐-―−]/g, '-');
+  const m = s.match(/DFX[^A-Z0-9]*([A-Z0-9]{4})[^A-Z0-9]*([A-Z0-9]{4})/);
+  return m ? `DFX-${m[1]}-${m[2]}` : s.trim();
+}
+$('#id').addEventListener('paste', e => { const t = (e.clipboardData || window.clipboardData).getData('text'); e.preventDefault(); $('#id').value = normId(t); $('#msg').textContent = ''; });
+$('#id').addEventListener('blur', () => { $('#id').value = normId($('#id').value); });
 let last = null;
 async function gen() {
   $('#msg').textContent = ''; if (!signKey) return lock();
-  const id = $('#id').value.trim().toUpperCase();
+  const id = normId($('#id').value); $('#id').value = id;
   if (!/^DFX-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(id)) { $('#msg').textContent = 'ID must look like DFX-XXXX-XXXX.'; return; }
   const days = plan === 'c' ? +$('#custom').value : plan;
   if (plan === 'c' && !(Number.isInteger(days) && days > 0 && days <= 3650)) { $('#msg').textContent = 'Enter a whole number of days (1–3650).'; return; }
