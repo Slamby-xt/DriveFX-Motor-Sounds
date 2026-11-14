@@ -64,6 +64,7 @@
   // per-car tuning: lp = how much of the highs survive (lower = less whine), bass = low-shelf boost in dB, gain = roar loudness
   const TUNE = { v8: { lp: 0.42, bass: 18, gain: 0.8 }, rotary: { gain: 1.9 } };
   const SAMPLES = {}; Object.keys(FILES).forEach(id => { SAMPLES[id] = { name: FILES[id], ...({ lp: 0.5, bass: 16, gain: 0.8 }), ...(TUNE[id] || {}) }; });
+  const PURE = /[?&]pure(=1)?(&|$)/.test(location.search); // ?pure=1 -> recordings only: no synthetic sub/growl/distortion, natural highs
   const sampleBuf = {}, sampleInfo = {};
   const GRAIN = 0.34, HOP = 0.15;                       // grain length / spacing in seconds (about 2.3x overlap, Hann windows)
   const HANN = (() => { const n = 64, c = new Float32Array(n); for (let i = 0; i < n; i++) c[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)); return c; })();
@@ -106,13 +107,13 @@
     v.gbus = ctx.createGain(); v.sbus = ctx.createGain();
     v.sf = ctx.createBiquadFilter(); v.sf.type = 'lowpass'; v.sf.Q.value = 0.7;
     v.sg = ctx.createGain(); v.sg.gain.value = 0;
-    const lowB = ctx.createBiquadFilter(); lowB.type = 'lowshelf'; lowB.frequency.value = 220; lowB.gain.value = T.bass;        // bass body
-    const hiCut = ctx.createBiquadFilter(); hiCut.type = 'highshelf'; hiCut.frequency.value = 1100; hiCut.gain.value = -20;       // tames the whine
+    const lowB = ctx.createBiquadFilter(); lowB.type = 'lowshelf'; lowB.frequency.value = 220; lowB.gain.value = PURE ? 3 : T.bass;        // bass body
+    const hiCut = ctx.createBiquadFilter(); hiCut.type = 'highshelf'; hiCut.frequency.value = 1100; hiCut.gain.value = PURE ? -6 : -20;       // tames the whine
     v.gbus.connect(v.sf); v.sf.connect(lowB); lowB.connect(hiCut); hiCut.connect(v.sg);
     // aggression: saturated, low-passed copy
     const ws = ctx.createWaveShaper(); ws.curve = curve(5); ws.oversample = '2x';
     const dlp = ctx.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 650; dlp.Q.value = 0.9;
-    const dg = ctx.createGain(); dg.gain.value = 0.45;
+    const dg = ctx.createGain(); dg.gain.value = PURE ? 0 : 0.45;
     v.gbus.connect(ws); ws.connect(dlp); dlp.connect(dg); dg.connect(v.sg);
     // sub-octave: grains played at half speed, low-passed = the chest-thumping rumble
     const slp = ctx.createBiquadFilter(); slp.type = 'lowpass'; slp.frequency.value = 150; slp.Q.value = 0.8;
@@ -259,7 +260,7 @@
     const sampled = !!SAMPLES[car.id] && !!sampleBuf[car.id];
     if (sampled) attachSample(v, car.id);
     // with a recording present the synth only supports it (low-end body), the recording carries the sound
-    const level = on ? (0.3 + 0.35 * rpmF + 0.4 * load) * (p.level || 1) * limiter * dip * (sampled ? 0.6 : 1) : 0;
+    const level = on ? (0.3 + 0.35 * rpmF + 0.4 * load) * (p.level || 1) * limiter * dip * (sampled ? (PURE ? 0 : 0.6) : 1) : 0;
     v.out.gain.setTargetAtTime(level, t, 0.03);
     if (sampled && v.sg) {
       // quiet at idle -> loud roar as revs/speed climb
@@ -267,9 +268,9 @@
       v.sg.gain.setTargetAtTime(on ? roar * 1.6 * SAMPLES[car.id].gain * limiter * dip : 0, t, 0.05);
       // pitch range is wide for steady recordings (they carry no rev information), narrow for recordings that already sweep
       const info = sampleInfo[car.id], steady = clamp(1 - (info.spread - 1) / 0.9, 0.3, 1);
-      const rate = 1 - 0.24 * steady + rpmF * 0.46 * steady;
-      v.sf.frequency.setTargetAtTime((500 + rpmF * 1300 + load * 600) * SAMPLES[car.id].lp, t, 0.06);
-      v.subG.gain.setTargetAtTime(0.55 + 0.6 * load, t, 0.08);
+      const rate = PURE ? 1 - 0.12 * steady + rpmF * 0.3 * steady : 1 - 0.24 * steady + rpmF * 0.46 * steady;
+      v.sf.frequency.setTargetAtTime(PURE ? 7000 : (500 + rpmF * 1300 + load * 600) * SAMPLES[car.id].lp, t, 0.06);
+      v.subG.gain.setTargetAtTime(PURE ? 0 : 0.55 + 0.6 * load, t, 0.08);
       if (on) { v.nextGrain = Math.max(v.nextGrain, t); while (v.nextGrain < t + 0.12) { spawnGrain(v, car.id, v.nextGrain, rpmF, rate); v.nextGrain += HOP; } }
       for (let i = v.grains.length - 1; i >= 0; i--) {
         const g = v.grains[i]; if (g.end < t) { v.grains.splice(i, 1); continue; }
