@@ -239,12 +239,17 @@
     el.simBtn.classList.toggle('on', on);
     el.simLabel.textContent = on ? 'STOP SIMULATION' : 'SIMULATE DRIVE';
     demo = on ? { i: 0, hold: 0.8 } : null;
-    if (on) { if (S.mode !== 'test') setMode('test'); if (!S.running) setRunning(true); }
+    if (on) {
+      if (S.mode !== 'test') setMode('test');
+      if (!S.running) setRunning(true);
+      if (!S.running) { setDemo(false); return; } // blocked by the paywall
+    }
     else if (S.running) S.targetSpeed = 0;
   }
 
   // ---------- Controls ----------
   function setRunning(on) {
+    if (on && window.DriveFX && DriveFX.gate && !DriveFX.gate()) return; // trial over / no license (see paywall.js)
     if (!on && demo) setDemo(false);
     S.running = on; S.sweepT = 0;
     el.startBtn.classList.toggle('running', on);
@@ -404,5 +409,5 @@
   setMode(store.get('mode') === 'test' ? 'test' : 'gps');
   requestAnimationFrame(frame);
 
-  window.DriveFX = { state: S, cars: CARS, onFrame: fn => frameHooks.push(fn) };
+  window.DriveFX = { state: S, cars: CARS, onFrame: fn => frameHooks.push(fn), stop: () => setRunning(false) };
 })();

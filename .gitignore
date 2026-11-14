@@ -1,1 +1,3 @@
 .claude/
+# SECRET: license signing key — never commit
+tools/private-key.json
