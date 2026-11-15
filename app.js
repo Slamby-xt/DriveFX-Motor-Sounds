@@ -3,17 +3,31 @@
   'use strict';
 
   // ---------- Cars ----------
+  // Real cars only. desc is the engine footnote shown on each card: engine · redline · gearbox.
   const CARS = [
-    { id: 'flat6',    name: 'Porsche', desc: 'Flat-six · 9,000 rpm · 7 gears · 280 km/h',        redline: 9000,  idle: 900,  gears: 7, top: 280, color: '#ff7a1a' },
-    { id: 'v8',       name: 'Dodge',         desc: 'Big-block V8 · 6,500 rpm · 6 gears · 250 km/h',     redline: 6500,  idle: 700,  gears: 6, top: 250, color: '#ff2d55' },
-    { id: 'v12',      name: 'Ferrari',       desc: 'Naturally aspirated V12 · 8,500 rpm · 320 km/h',    redline: 8500,  idle: 1000, gears: 7, top: 320, color: '#ffd23f' },
-    { id: 'roadster', name: 'Tesla', desc: 'Synthetic whine · 12,000 rpm · 1 gear · 260 km/h',  redline: 12000, idle: 0,    gears: 1, top: 260, color: '#00e5ff' },
-    { id: 'rally',    name: 'Mitsubishi',       desc: 'Turbo four · 7,500 rpm · 6 short gears · 220 km/h', redline: 7500,  idle: 1000, gears: 6, top: 220, color: '#5dff9a' },
-    { id: 'v10',      name: 'Lamborghini',      desc: 'Screaming V10 · 8,700 rpm · 7 gears · 330 km/h',     redline: 8700,  idle: 950,  gears: 7, top: 330, color: '#a6ff00' },
-    { id: 'i6t',      name: 'BMW',    desc: 'Twin-turbo I6 · 7,000 rpm · 8 gears · 300 km/h',     redline: 7000,  idle: 800,  gears: 8, top: 300, color: '#4d8bff' },
-    { id: 'boxer',    name: 'Subaru',      desc: 'Flat-four boxer · 7,500 rpm · 6 gears · 240 km/h',   redline: 7500,  idle: 850,  gears: 6, top: 240, color: '#00ffd5' },
-    { id: 'rotary',   name: 'Mazda',   desc: 'Twin-rotor · 9,500 rpm · 5 gears · 260 km/h',        redline: 9500,  idle: 900,  gears: 5, top: 260, color: '#ff4fd8' },
-    { id: 'hearse',   name: 'Cadillac',    desc: 'Rattling old V8 · 5,000 rpm · 4 gears · 150 km/h',  redline: 5000,  idle: 600,  gears: 4, top: 150, color: '#b48cff' },
+    { id: 'flat6',    name: 'Porsche 911 GT3 (992)', desc: '4.0 L flat-six · 9,000 rpm · 7-speed PDK', redline: 9000, idle: 900, gears: 7, top: 318, color: '#ff7a1a' },
+    { id: 'gt3rs',    name: 'Porsche 911 GT3 RS (991.2)', desc: '4.0 L flat-six · 9,000 rpm · 7-speed PDK', redline: 9000, idle: 900, gears: 7, top: 312, color: '#7dff3a' },
+    { id: 'turbos',   name: 'Porsche 911 Turbo S (992)', desc: '3.7 L twin-turbo flat-six · 7,200 rpm · 8-speed PDK', redline: 7200, idle: 800, gears: 8, top: 330, color: '#cfd8e3' },
+    { id: 'v12',      name: 'Ferrari 812 Superfast', desc: '6.5 L V12 · 8,900 rpm · 7-speed dual-clutch', redline: 8900, idle: 1000, gears: 7, top: 340, color: '#ffd23f' },
+    { id: 'enzo',     name: 'Ferrari Enzo', desc: '6.0 L V12 · 8,200 rpm · 6-speed paddle shift', redline: 8200, idle: 1000, gears: 6, top: 350, color: '#ff1f1f' },
+    { id: 'v10',      name: 'Lamborghini Huracán', desc: '5.2 L V10 · 8,500 rpm · 7-speed dual-clutch', redline: 8500, idle: 950, gears: 7, top: 325, color: '#a6ff00' },
+    { id: 'veneno',   name: 'Lamborghini Veneno', desc: '6.5 L V12 · 8,500 rpm · 7-speed single-clutch', redline: 8500, idle: 950, gears: 7, top: 355, color: '#aeb6c2' },
+    { id: 'urus',     name: 'Lamborghini Urus', desc: '4.0 L twin-turbo V8 · 6,800 rpm · 8-speed automatic', redline: 6800, idle: 750, gears: 8, top: 305, color: '#ffc21a' },
+    { id: 'v8',       name: 'Dodge Challenger SRT Hellcat', desc: '6.2 L supercharged V8 · 6,200 rpm · 6-speed manual', redline: 6200, idle: 700, gears: 6, top: 320, color: '#ff2d55' },
+    { id: 'muscle',   name: 'Ford Mustang Boss 429 (1969)', desc: '7.0 L big-block V8 · 6,000 rpm · 4-speed manual', redline: 6000, idle: 750, gears: 4, top: 190, color: '#2ea8ff' },
+    { id: 'i6t',      name: 'BMW M3 Competition (G80)', desc: '3.0 L twin-turbo inline-six · 7,200 rpm · 8-speed automatic', redline: 7200, idle: 800, gears: 8, top: 290, color: '#4d8bff' },
+    { id: 'rs6',      name: 'Audi RS 6 Avant (C8)', desc: '4.0 L twin-turbo V8 · 6,800 rpm · 8-speed automatic', redline: 6800, idle: 750, gears: 8, top: 305, color: '#8f9aa3' },
+    { id: 'g63',      name: 'Mercedes-AMG G 63', desc: '4.0 L twin-turbo V8 · 7,000 rpm · 9-speed automatic', redline: 7000, idle: 700, gears: 9, top: 220, color: '#e6d3a3' },
+    { id: 'gtr',      name: 'Nissan GT-R NISMO (R35)', desc: '3.8 L twin-turbo V6 · 7,100 rpm · 6-speed dual-clutch', redline: 7100, idle: 800, gears: 6, top: 315, color: '#f2f5ff' },
+    { id: 'chiron',   name: 'Bugatti Chiron', desc: '8.0 L quad-turbo W16 · 6,700 rpm · 7-speed dual-clutch', redline: 6700, idle: 700, gears: 7, top: 420, color: '#2f6bff' },
+    { id: 'valkyrie', name: 'Aston Martin Valkyrie', desc: '6.5 L V12 · 11,100 rpm · 7-speed single-clutch', redline: 11100, idle: 1200, gears: 7, top: 350, color: '#00b38a' },
+    { id: 'lfa',      name: 'Lexus LFA', desc: '4.8 L V10 · 9,000 rpm · 6-speed single-clutch', redline: 9000, idle: 950, gears: 6, top: 325, color: '#ffa51f' },
+    { id: 'f1',       name: 'Mercedes-AMG F1 W11', desc: '1.6 L turbo V6 hybrid · 12,000 rpm · 8-speed seamless', redline: 12000, idle: 4000, gears: 8, top: 340, color: '#00d2be' },
+    { id: 'rally',    name: 'Mitsubishi Lancer Evolution IX', desc: '2.0 L turbo inline-four · 7,000 rpm · 6-speed manual', redline: 7000, idle: 1000, gears: 6, top: 250, color: '#5dff9a' },
+    { id: 'boxer',    name: 'Subaru Impreza WRX STI', desc: '2.5 L turbo flat-four · 6,700 rpm · 6-speed manual', redline: 6700, idle: 850, gears: 6, top: 255, color: '#00ffd5' },
+    { id: 'rotary',   name: 'Mazda RX-7 (FD)', desc: '1.3 L twin-turbo twin-rotor · 8,000 rpm · 5-speed manual', redline: 8000, idle: 900, gears: 5, top: 250, color: '#ff4fd8' },
+    { id: 'hearse',   name: 'Cadillac Miller-Meteor Hearse (1966)', desc: '7.0 L V8 · 5,000 rpm · 3-speed automatic', redline: 5000, idle: 600, gears: 3, top: 170, color: '#b48cff' },
+    { id: 'roadster', name: 'Tesla Roadster (2008)', desc: 'AC induction motor · 14,000 rpm · single-speed', redline: 14000, idle: 0, gears: 1, top: 201, color: '#00e5ff' },
   ];
 
   // ---------- State ----------
@@ -124,10 +138,10 @@
     CARS.forEach(c => {
       const b = document.createElement('button');
       b.className = 'car' + (c === S.car ? ' on' : '');
-      b.style.setProperty('--c', c.color); b.style.setProperty('--w', (c.redline / 12000 * 100) + '%');
+      b.style.setProperty('--c', c.color); b.style.setProperty('--w', (c.redline / 14000 * 100) + '%');
       b.setAttribute('role', 'option'); b.setAttribute('aria-selected', c === S.car);
       const n = document.createElement('b'); n.textContent = c.name;
-      const s = document.createElement('span'); s.textContent = `${c.redline.toLocaleString('en')} rpm · ${c.gears} gear${c.gears > 1 ? 's' : ''}`;
+      const s = document.createElement('span'); s.textContent = c.desc;
       const th = new Image(); th.src = 'img/' + c.id + '.jpg'; th.alt = ''; th.className = 'th'; th.loading = 'lazy'; th.onerror = () => th.remove();
       b.append(th, n, s, document.createElement('i'));
       b.onclick = () => { selectCar(c); window.DriveFX && DriveFX.audio && DriveFX.audio.preview(c); };

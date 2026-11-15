@@ -218,4 +218,3 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 .pw-msg.ok{color:var(--ok,#27f0a0)}.pw-msg.err{color:#ff6b7f}
 .pw-check{width:100%;padding:13px;border:0;border-radius:10px;background:var(--accent,#00e5ff);color:#04050a;font:800 12px var(--f-display);letter-spacing:.16em;cursor:pointer}
 
-.credits{max-width:1200px;margin:18px auto 28px;padding:0 16px;color:var(--mute);font:500 12.5px/1.5 var(--f-body,Rajdhani,sans-serif);text-align:center}.credits a{color:inherit;text-decoration:underline;text-underline-offset:2px}.credits b{letter-spacing:.14em;color:var(--tx,#e8f1ff)}

@@ -49,48 +49,48 @@
       formants: [[160, 1.0, 0.8], [640, 2.2, 0.65], [1950, 2.5, 0.5], [3400, 2.0, 0.22]],
       pulse: [3.0, 44], muffler: [1200, 7500], intake: 0.3, intakeHz: 520, body: [110, 2], drive: 3.2, gain: 0.58, out: 1.25 },
     // supercharged cross-plane V8: uneven banks = burble, deep body, blower whine under boost
-    v8: { idle: 700, redline: 6500, firing: CROSSPLANE,
+    v8: { idle: 700, redline: 6200, firing: CROSSPLANE,
       banks: [{ ms: 2.9, pan: -0.5 }, { ms: 2.6, pan: 0.5, tune: 1.08 }],
       formants: [[52, 1.2, 1.0], [185, 0.9, 1.0], [720, 1.4, 1.5], [1500, 1.6, 1.6], [2900, 2.0, 0.3]],
       pulse: [5.5, 40], noise: 0.8, jitter: 0.035, trim: 0.08, lope: 0.1, muffler: [1300, 7500], body: [58, 8],
       intake: 0.08, intakeHz: 620, crackle: 0.25, drive: 3.6, gain: 0.6, out: 0.92,
       blower: { ratio: 9.44, level: 0.06, load: [0.25, 0.75], harm: [0.6, 1, 0.5, 0.3], voices: [[1, 1], [1.003, 0.8], [0.9955, 0.6]] } },
     // naturally aspirated V12, even 60 degrees: smooth, dense, shrieking
-    v12: { idle: 1000, redline: 8500, firing: even([1, 7, 5, 11, 3, 9, 6, 12, 2, 8, 4, 10], [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]),
+    v12: { idle: 1000, redline: 8900, firing: even([1, 7, 5, 11, 3, 9, 6, 12, 2, 8, 4, 10], [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]),
       banks: [{ ms: 3.4, pan: -0.45 }, { ms: 3.55, pan: 0.45, tune: 1.02 }],
       formants: [[190, 1.0, 0.6], [780, 2.0, 0.7], [2300, 2.5, 0.65], [4200, 2.5, 0.38]],
       pulse: [2.4, 50], noise: 0.4, jitter: 0.015, trim: 0.02, lope: 0, muffler: [1500, 9000], body: [120, 2],
       intake: 0.28, intakeHz: 800, drive: 2.6, gain: 0.55, out: 1.17 },
     // turbo inline-four, 1-3-4-2: the turbine smooths the pulses; whistle and blow-off
-    rally: { idle: 1000, redline: 7500, firing: even([1, 3, 4, 2]),
+    rally: { idle: 1000, redline: 7000, firing: even([1, 3, 4, 2]),
       banks: [{ ms: 5.8, pan: 0 }],
       formants: [[120, 1.0, 0.9], [380, 1.5, 0.7], [1100, 2.0, 0.5], [2600, 2.0, 0.25]],
       pulse: [4.2, 62], noise: 0.6, lope: 0.05, muffler: [1000, 5500], body: [95, 5], crackle: 0.8, drive: 3.4, gain: 0.62, out: 0.95,
       turbo: { level: 0.08, hz: [2400, 8200], bov: 0.5, flutter: 0.6 } },
     // 90-degree V10 on shared crankpins: firing gaps alternate 90 / 54 degrees
-    v10: { idle: 950, redline: 8700,
+    v10: { idle: 950, redline: 8500,
       firing: [[0, 1, 0], [90, 6, 1], [144, 5, 0], [234, 10, 1], [288, 2, 0], [378, 7, 1], [432, 3, 0], [522, 8, 1], [576, 4, 0], [666, 9, 1]],
       banks: [{ ms: 3.6, pan: -0.45 }, { ms: 3.9, pan: 0.45, tune: 1.04 }],
       formants: [[170, 1.0, 0.7], [700, 2.0, 0.7], [1700, 2.4, 0.75], [3300, 2.4, 0.42]],
       pulse: [2.6, 48], noise: 0.45, jitter: 0.02, lope: 0.02, muffler: [1400, 8500], body: [115, 2],
       intake: 0.25, intakeHz: 700, crackle: 0.7, drive: 3.0, gain: 0.56, out: 1.13 },
     // twin-turbo inline-six, 1-5-3-6-2-4: cylinders 1-3 and 4-6 each feed their own turbo and pipe
-    i6t: { idle: 800, redline: 7000, firing: even([1, 5, 3, 6, 2, 4], [0, 1, 0, 1, 0, 1]),
+    i6t: { idle: 800, redline: 7200, firing: even([1, 5, 3, 6, 2, 4], [0, 1, 0, 1, 0, 1]),
       banks: [{ ms: 5.2, pan: -0.3 }, { ms: 5.5, pan: 0.3, tune: 1.03 }],
       formants: [[130, 1.0, 0.9], [420, 1.6, 0.6], [1200, 2.0, 0.38], [2500, 2.0, 0.15]],
       pulse: [3.6, 58], noise: 0.35, jitter: 0.015, trim: 0.03, lope: 0.02, muffler: [900, 4800], body: [90, 5],
       crackle: 0.7, drive: 2.8, gain: 0.6, out: 1.12, turbo: { level: 0.045, hz: [2800, 9000], bov: 0.25, flutter: 0 } },
     // turbo flat-four with unequal-length headers: two cylinders arrive late and weaker = the boxer rumble
-    boxer: { idle: 850, redline: 7500, firing: even([1, 3, 2, 4]),
+    boxer: { idle: 850, redline: 6700, firing: even([1, 3, 2, 4]),
       banks: [{ ms: 6.2, pan: 0 }], runner: { 2: [1.9, 0.72], 4: [1.9, 0.72] },
       formants: [[105, 1.1, 1.0], [320, 1.4, 0.7], [900, 1.8, 0.45], [2200, 2.0, 0.2]],
       pulse: [4.6, 62], noise: 0.6, jitter: 0.035, lope: 0.08, muffler: [950, 5000], body: [80, 6],
       crackle: 0.5, drive: 3.2, gain: 0.62, out: 1.07, turbo: { level: 0.055, hz: [2200, 7600], bov: 0.35, flutter: 0.8 } },
-    // twin-rotor: two firings per shaft turn through wide-open ports = sharp pulses, "brap" idle, buzzing top end
-    rotary: { idle: 900, redline: 9500, firing: even([1, 2, 1, 2]),
+    // twin-rotor: two firings per shaft turn through wide-open ports = sharp pulses and a buzzing top end (stock ports: fairly even idle)
+    rotary: { idle: 900, redline: 8000, firing: even([1, 2, 1, 2]),
       banks: [{ ms: 3.9, pan: 0 }],
       formants: [[150, 1.0, 0.6], [520, 1.8, 0.8], [1500, 2.2, 0.85], [3200, 2.2, 0.45]],
-      pulse: [2.2, 34], noise: 0.7, jitter: 0.04, trim: 0.05, lope: 0.35, muffler: [1500, 8500], body: [110, 3],
+      pulse: [2.2, 34], noise: 0.7, jitter: 0.04, trim: 0.05, lope: 0.12, muffler: [1500, 8500], body: [110, 3],
       crackle: 0.6, drive: 3.6, gain: 0.52, out: 1.4, turbo: { level: 0.035, hz: [2600, 8600], bov: 0.25, flutter: 0 } },
     // tired old cross-plane V8: long soft pulses, uneven cylinders, lazy lope, ticking lifters, closed-up exhaust
     hearse: { idle: 600, redline: 5000, firing: CROSSPLANE,
@@ -99,6 +99,85 @@
       pulse: [7, 70], noise: 0.9, jitter: 0.07, trim: 0.14, timing: 0.03, lope: 0.3, muffler: [700, 3200], body: [50, 8],
       intake: 0.05, tick: 0.07, crackle: 0, drive: 2.4, gain: 0.62, out: 0.82 },
   };
+  const alt = n => Array.from({ length: n }, (_, i) => i % 2);
+  const V12 = even([1, 7, 5, 11, 3, 9, 6, 12, 2, 8, 4, 10], alt(12));
+  const add = (id, like, cfg) => { CARS[id] = Object.assign({}, like ? CARS[like] : null, cfg); };
+  // track flat-six: shorter pipes, less muffler, more induction and crackle than the GT3
+  add('gt3rs', 'flat6', { banks: [{ ms: 4.1, pan: -0.45 }, { ms: 4.35, pan: 0.45, tune: 1.03 }],
+    formants: [[170, 1.0, 0.75], [700, 2.2, 0.75], [2150, 2.5, 0.6], [3800, 2.1, 0.3]],
+    pulse: [2.8, 42], noise: 0.6, muffler: [1400, 8500], intake: 0.38, intakeHz: 560, crackle: 0.7, tick: 0.03, drive: 3.5, out: 1.15 });
+  // twin-turbo flat-six: the turbines round the pulses off; deep, breathy, a rush of boost
+  add('turbos', null, { out: 1.06, idle: 800, redline: 7200, firing: CARS.flat6.firing,
+    banks: [{ ms: 4.9, pan: -0.4 }, { ms: 5.2, pan: 0.4, tune: 1.03 }],
+    formants: [[140, 1.0, 0.9], [480, 1.6, 0.65], [1400, 2.0, 0.4], [2800, 2.0, 0.18]],
+    pulse: [3.6, 56], noise: 0.4, jitter: 0.018, trim: 0.03, lope: 0.03, muffler: [900, 5000], body: [95, 5],
+    intake: 0.1, intakeHz: 560, crackle: 0.45, drive: 2.8, turbo: { level: 0.06, hz: [2600, 8800], bov: 0.2, flutter: 0 } });
+  // V12s: all fire evenly every 60 degrees; what differs is pipe length, resonances and how open the exhaust is
+  add('enzo', null, { out: 1.06, idle: 1000, redline: 8200, firing: V12,
+    banks: [{ ms: 3.2, pan: -0.45 }, { ms: 3.35, pan: 0.45, tune: 1.02 }],
+    formants: [[200, 1.0, 0.6], [840, 2.0, 0.75], [2500, 2.5, 0.7], [4500, 2.5, 0.4]],
+    pulse: [2.3, 48], noise: 0.45, jitter: 0.02, trim: 0.03, lope: 0.02, muffler: [1600, 9500], body: [125, 2],
+    intake: 0.32, intakeHz: 850, tick: 0.03, crackle: 0.4, drive: 2.9 });
+  add('veneno', null, { out: 0.95, idle: 950, redline: 8500, firing: V12,
+    banks: [{ ms: 3.7, pan: -0.5 }, { ms: 3.9, pan: 0.5, tune: 1.03 }],
+    formants: [[150, 1.0, 0.8], [620, 1.8, 0.8], [1800, 2.3, 0.7], [3600, 2.4, 0.4]],
+    pulse: [2.8, 50], noise: 0.55, jitter: 0.025, trim: 0.04, lope: 0.03, muffler: [1400, 8800], body: [100, 4],
+    intake: 0.24, intakeHz: 680, crackle: 0.9, drive: 3.3 });
+  add('valkyrie', null, { out: 0.92, idle: 1200, redline: 11100, firing: V12,
+    banks: [{ ms: 2.6, pan: -0.4 }, { ms: 2.7, pan: 0.4, tune: 1.02 }],
+    formants: [[240, 1.0, 0.5], [1000, 2.0, 0.7], [2900, 2.5, 0.8], [5200, 2.5, 0.5]],
+    pulse: [1.8, 46], noise: 0.4, jitter: 0.012, trim: 0.02, lope: 0, muffler: [2000, 11000], body: [140, 1],
+    intake: 0.35, intakeHz: 1000, tick: 0.03, crackle: 0.3, drive: 2.6 });
+  // twin-turbo "hot-V" cross-plane V8s, 1-3-7-2-6-5-4-8: the V8 burble under a blanket of turbo
+  add('urus', null, { out: 0.84, idle: 750, redline: 6800,
+    firing: [[0, 1, 0], [90, 3, 0], [180, 7, 1], [270, 2, 0], [360, 6, 1], [450, 5, 1], [540, 4, 0], [630, 8, 1]],
+    banks: [{ ms: 3.6, pan: -0.45 }, { ms: 3.3, pan: 0.45, tune: 1.06 }],
+    formants: [[60, 1.1, 1.0], [200, 1.0, 0.9], [620, 1.4, 0.9], [1350, 1.6, 0.7], [2600, 2.0, 0.2]],
+    pulse: [5, 52], noise: 0.5, trim: 0.06, muffler: [1000, 5600], body: [62, 7], intake: 0.06,
+    crackle: 0.7, drive: 3.2, turbo: { level: 0.03, hz: [2600, 8000], bov: 0.15, flutter: 0 } });
+  add('rs6', 'urus', { banks: [{ ms: 3.9, pan: -0.4 }, { ms: 3.6, pan: 0.4, tune: 1.05 }],
+    formants: [[55, 1.1, 1.0], [180, 1.0, 1.0], [540, 1.4, 0.75], [1200, 1.6, 0.5], [2400, 2.0, 0.15]],
+    pulse: [5.4, 56], muffler: [850, 4600], body: [56, 8], crackle: 0.45, drive: 3.0, out: 0.82 });
+  // 1-5-4-2-6-3-7-8 through short side pipes: a loud, lumpy bark
+  add('g63', null, { out: 0.94, idle: 700, redline: 7000,
+    firing: [[0, 1, 0], [90, 5, 1], [180, 4, 0], [270, 2, 0], [360, 6, 1], [450, 3, 0], [540, 7, 1], [630, 8, 1]],
+    banks: [{ ms: 2.4, pan: -0.7 }, { ms: 2.2, pan: 0.7, tune: 1.07 }],
+    formants: [[55, 1.1, 1.0], [170, 0.9, 1.0], [560, 1.3, 1.2], [1250, 1.5, 1.0], [2400, 2.0, 0.25]],
+    pulse: [5.2, 50], noise: 0.6, jitter: 0.035, trim: 0.08, lope: 0.12, muffler: [1100, 6000], body: [56, 8], intake: 0.06,
+    crackle: 0.6, drive: 3.5, turbo: { level: 0.02, hz: [2600, 8000], bov: 0.1, flutter: 0 } });
+  // twin-turbo 60-degree V6, 1-2-3-4-5-6 across the banks: even, mechanical, a lot of turbine
+  add('gtr', null, { out: 0.98, idle: 800, redline: 7100, firing: even([1, 2, 3, 4, 5, 6], alt(6)),
+    banks: [{ ms: 4.8, pan: -0.4 }, { ms: 5.1, pan: 0.4, tune: 1.03 }],
+    formants: [[120, 1.0, 0.9], [400, 1.5, 0.7], [1150, 2.0, 0.5], [2700, 2.0, 0.22]],
+    pulse: [3.8, 58], noise: 0.45, jitter: 0.02, lope: 0.03, muffler: [950, 5200], body: [88, 5],
+    intake: 0.1, intakeHz: 600, tick: 0.04, crackle: 0.45, drive: 3.0, turbo: { level: 0.07, hz: [2400, 8500], bov: 0.3, flutter: 0 } });
+  // W16: sixteen cylinders 45 degrees apart, but each half fires unevenly = a deep warble under four turbos
+  add('chiron', null, { out: 0.94, idle: 700, redline: 6700,
+    firing: [1, 14, 9, 4, 7, 12, 15, 6, 13, 8, 3, 16, 11, 2, 5, 10].map((c, i) => [i * 45, c, c > 8 ? 1 : 0]),
+    banks: [{ ms: 4.6, pan: -0.45 }, { ms: 4.9, pan: 0.45, tune: 1.04 }],
+    formants: [[48, 1.1, 1.0], [140, 1.0, 1.0], [420, 1.4, 0.7], [1000, 1.6, 0.45], [2200, 2.0, 0.18]],
+    pulse: [4.5, 50], noise: 0.45, jitter: 0.02, lope: 0.03, muffler: [800, 4800], body: [50, 8],
+    intake: 0.1, intakeHz: 500, crackle: 0.3, drive: 2.8, turbo: { level: 0.09, hz: [1800, 6500], bov: 0.45, flutter: 0 } });
+  // 72-degree V10 firing evenly: each bank is a smooth inline-five, the top end is all induction
+  add('lfa', null, { out: 1.26, idle: 950, redline: 9000, firing: even([1, 6, 5, 10, 2, 7, 3, 8, 4, 9], alt(10)),
+    banks: [{ ms: 3.0, pan: -0.4 }, { ms: 3.1, pan: 0.4, tune: 1.02 }],
+    formants: [[210, 1.0, 0.55], [900, 2.2, 0.8], [2600, 2.6, 0.8], [4800, 2.5, 0.45]],
+    pulse: [2.0, 46], noise: 0.38, jitter: 0.012, trim: 0.02, lope: 0, muffler: [1800, 10000], body: [130, 1.5],
+    intake: 0.36, intakeHz: 900, crackle: 0.3, drive: 2.6 });
+  // 90-degree turbo V6 on three crankpins: gaps alternate 90 / 150 degrees, one turbo, one tailpipe, high idle
+  add('f1', null, { out: 1.16, idle: 4000, redline: 12000,
+    firing: [[0, 1, 0], [90, 4, 0], [240, 2, 0], [330, 5, 0], [480, 3, 0], [570, 6, 0]],
+    banks: [{ ms: 2.4, pan: 0 }],
+    formants: [[260, 1.0, 0.6], [900, 1.8, 0.8], [2400, 2.2, 0.7], [4600, 2.4, 0.35]],
+    pulse: [1.6, 50], noise: 0.5, jitter: 0.015, trim: 0.02, timing: 0.006, lope: 0, muffler: [1500, 8000], body: [150, 1],
+    intake: 0.2, intakeHz: 950, crackle: 0.2, drive: 3.0, turbo: { level: 0.08, hz: [3500, 11000], bov: 0.1, flutter: 0 } });
+  // 1969 big-block cross-plane V8 (1-5-4-2-6-3-7-8) through open dual pipes: lumpy idle, hard bark
+  add('muscle', null, { out: 0.86, idle: 750, redline: 6000,
+    firing: [[0, 1, 0], [90, 5, 1], [180, 4, 0], [270, 2, 0], [360, 6, 1], [450, 3, 0], [540, 7, 1], [630, 8, 1]],
+    banks: [{ ms: 3.2, pan: -0.6 }, { ms: 2.8, pan: 0.6, tune: 1.09 }],
+    formants: [[50, 1.2, 1.0], [165, 0.9, 1.0], [640, 1.3, 1.5], [1350, 1.5, 1.5], [2700, 2.0, 0.4]],
+    pulse: [6, 44], noise: 0.95, jitter: 0.05, trim: 0.1, timing: 0.015, lope: 0.3, muffler: [1500, 7500], body: [55, 8],
+    intake: 0.14, intakeHz: 500, tick: 0.03, crackle: 0.2, drive: 3.8 });
 
   // RBJ cookbook biquad (transposed direct form II)
   class Biquad {
