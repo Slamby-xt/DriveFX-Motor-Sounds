@@ -138,7 +138,7 @@
   function loadModel() {
     const classic = () => { MODEL = false; };
     if (!ctx.audioWorklet || !window.AudioWorkletNode) return classic();
-    ctx.audioWorklet.addModule('engine-worklet.js?v=3').then(() => {
+    ctx.audioWorklet.addModule('engine-worklet.js?v=4').then(() => {
       eng = new AudioWorkletNode(ctx, 'drivefx-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
       engBus = ctx.createGain(); engBus.gain.value = 0;
       eng.connect(engBus); engBus.connect(ctx.destination); engBus.connect(analyser);

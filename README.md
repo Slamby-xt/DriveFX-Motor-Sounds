@@ -5,7 +5,8 @@ Futuristic web dashboard that revs a virtual engine from your real driving speed
 - Speed from `navigator.geolocation` (GPS needs HTTPS or localhost)
 - 23 real cars; engine sounds come from a per-sample engine model (`engine-worklet.js`: firing order, exhaust pulses, pipe resonances), no recordings
 - Car photos live in `img/<car id>.jpg` (1280×720); a car without a photo shows a drawn silhouette
-- Test drive mode, auto "Simulate drive", gas/brake pedals
+- One-screen cockpit for landscape car displays (Tesla): speed, the selected car with previous/next arrows, Start and volume. ALL CARS opens the garage to pick any car in one tap; km/h and mph switch by tapping the unit
+- Test drive mode (TEST DRIVE tab): gas/brake pedals, speed slider and "Simulate drive" for hearing the engine while parked
 
 Run locally: `python -m http.server 5173` and open http://localhost:5173
 

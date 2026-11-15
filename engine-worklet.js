@@ -344,12 +344,11 @@
       if (this.crkP > 0 && Math.random() < this.crkP) this.pop(bank, 0.25 + 0.75 * Math.random());
     }
     process(outL, outR, n) {
+      // A pending car swap happens here, before anything below is cached: the old car's banks and settings must not be used after it.
+      if (this.next && this.g < 0.003) { const id = this.next; this.next = null; this.configure(id); }
       const sr = this.sr, t = this.t, banks = this.banks, nb = banks.length, cps = 1 / (120 * sr), s = this.s;
       for (let i = 0; i < n; i++) {
-        if (this.blk === 0) {
-          if (this.next && this.g < 0.003) { const id = this.next; this.next = null; this.configure(id); }
-          this.derive();
-        }
+        if (this.blk === 0) this.derive();
         this.blk = (this.blk + 1) & 63;
         this.g += ((this.next ? 0 : t.on) - this.g) * this.kG;
         if (this.g < 1e-4 && !t.on) { outL[i] = 0; outR[i] = 0; this.rpm = t.rpm; continue; }
@@ -416,10 +415,16 @@
 
   if (typeof registerProcessor === 'function') {
     registerProcessor('drivefx-engine', class extends AudioWorkletProcessor {
-      constructor() { super(); this.m = new EngineModel(sampleRate, 'v8'); this.port.onmessage = e => this.m.set(e.data); }
+      constructor() {
+        super(); this.m = new EngineModel(sampleRate, 'v8'); this.car = 'v8'; this.last = null;
+        this.port.onmessage = e => { if (e.data && e.data.car && CARS[e.data.car]) this.car = e.data.car; this.last = e.data; this.m.set(e.data); };
+      }
       process(_, outputs) {
         const o = outputs[0], L = o[0], R = o[1] || (this.tmp || (this.tmp = new Float32Array(L.length)));
-        this.m.process(L, R, L.length);
+        try { this.m.process(L, R, L.length); }
+        catch (err) { // never leave the engine silent for good: start a fresh model on the same car and carry on
+          L.fill(0); R.fill(0); this.m = new EngineModel(sampleRate, this.car); if (this.last) this.m.set(this.last);
+        }
         return true;
       }
     });

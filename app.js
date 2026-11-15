@@ -42,17 +42,16 @@
   // ---------- State ----------
   const S = {
     car: FIRST_FREE, running: false, mode: 'gps', unit: 'kmh', volume: 100,
-    speed: 0, targetSpeed: 0, rpm: 0, gear: 0, throttle: 0, g: 0,
-    trip: 0, top: 0, time: 0, heading: null, sweepT: 0,
+    speed: 0, targetSpeed: 0, rpm: 0, gear: 0, throttle: 0, sweepT: 0,
     gps: { state: 'off', acc: null, last: null, lastTime: 0 },
     keys: { up: false, down: false },
   };
 
   const $ = id => document.getElementById(id);
   const el = {};
-  ['gauge','speed','unit','gear','rpm','throttleFill','startBtn','startLabel','chipGps','chipEngine','chipMode','notice','testBox',
-   'testSpeed','testSpeedVal','cars','carName','carDesc','carArt','carIdx','volume','volumeVal','gpsAcc','gpsSrc','gpsLat','gpsLon',
-   'gpsBars','simBtn','simLabel','gasBtn','brakeBtn','fsBtn','shift','tTrip','tTripU','tTop','tTime','tG','tHead','tHeadD','tLoad','tMax','graph','bg','tLive'].forEach(id => el[id] = $(id));
+  ['gauge','speed','unit','gear','rpm','startBtn','startLabel','chipGps','notice','testBox',
+   'testSpeed','testSpeedVal','cars','carName','carDesc','carArt','carIdx','volume','volumeVal',
+   'simBtn','simLabel','gasBtn','brakeBtn','fsBtn','bg','prevCar','nextCar','garage','garageBtn','garageClose'].forEach(id => el[id] = $(id));
 
   const store = {
     get(k) { try { return localStorage.getItem('drivefx.' + k); } catch { return null; } },
@@ -85,9 +84,6 @@
     gaugeMax = Math.ceil(S.car.redline / 1000);
     redStart = S.car.redline / (gaugeMax * 1000);
     el.gauge.replaceChildren();
-    mk('circle', { class: 'dash', cx: C, cy: C, r: 292 });
-    mk('circle', { class: 'dash rev', cx: C, cy: C, r: 166 });
-    mk('circle', { class: 'ring', cx: C, cy: C, r: 150 });
     // rpm segments
     segEls = [];
     const step = (A1 - A0) / SEGS;
@@ -121,16 +117,6 @@
     });
   }
 
-  // shift lights
-  const leds = [];
-  (function () { for (let i = 0; i < 12; i++) { const d = document.createElement('i'); d.className = i < 4 ? 'g' : i < 8 ? 'a' : 'r'; el.shift.appendChild(d); leds.push(d); } })();
-  let ledN = -1;
-  function paintShift(rpm) {
-    const t = clamp((rpm / S.car.redline - 0.72) / 0.26, 0, 1), n = Math.round(t * 12);
-    if (n !== ledN) { ledN = n; leds.forEach((d, i) => d.classList.toggle('on', i < n)); }
-    el.shift.classList.toggle('flash', S.running && rpm >= S.car.redline * 0.985);
-  }
-
   // ---------- Car UI ----------
   function carSvg() {
     return `<svg viewBox="0 0 260 90" fill="none">
@@ -146,21 +132,38 @@
     el.cars.replaceChildren();
     CARS.forEach(c => {
       const b = document.createElement('button');
-      b.className = 'car' + (c === S.car ? ' on' : '');
-      b.style.setProperty('--c', c.color); b.style.setProperty('--w', (c.redline / 14000 * 100) + '%');
-      b.setAttribute('role', 'option'); b.setAttribute('aria-selected', c === S.car);
+      b.type = 'button'; b.className = 'car'; b.dataset.id = c.id;
+      b.style.setProperty('--c', c.color);
+      b.setAttribute('role', 'option');
       const n = document.createElement('b'); n.textContent = c.name;
       const s = document.createElement('span'); s.textContent = c.desc;
-      const th = new Image(); th.src = 'img/' + c.id + '.jpg'; th.alt = ''; th.className = 'th'; th.loading = 'lazy'; th.onerror = () => th.remove();
-      b.append(th, n, s, document.createElement('i'));
+      const th = new Image(); th.src = 'img/' + c.id + '.jpg'; th.alt = ''; th.className = 'th'; th.loading = 'lazy';
+      th.onerror = () => { const ph = document.createElement('div'); ph.className = 'th ph'; th.replaceWith(ph); }; // no photo yet: keep the tile the same shape
+      b.append(th, n, s);
       if (!isPro()) { const t = document.createElement('em'); t.className = 'tier ' + (c.free ? 'free' : 'pro'); t.textContent = c.free ? 'FREE' : 'PRO'; b.appendChild(t); }
-      b.onclick = () => {
-        if (locked(c)) { openPaywall('pro', c); return; }
-        wanted = null; selectCar(c); window.DriveFX && DriveFX.audio && DriveFX.audio.preview(c);
-      };
+      b.onclick = () => { closeGarage(); chooseCar(c); };
       el.cars.appendChild(b);
     });
+    markCurrent();
   }
+  function markCurrent() {
+    [...el.cars.children].forEach(b => { const on = b.dataset.id === S.car.id; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+  }
+  // the one way the UI picks a car: Pro cars open the upgrade window instead, free ones are selected and previewed
+  function chooseCar(c) {
+    if (locked(c)) { openPaywall('pro', c); return; }
+    wanted = null; selectCar(c); window.DriveFX && DriveFX.audio && DriveFX.audio.preview(c);
+  }
+  // previous / next: cycles only through cars this visitor can use, so a tap never lands on the upgrade window
+  function stepCar(dir) {
+    const usable = CARS.filter(c => !locked(c) || c === S.car), at = usable.indexOf(S.car);
+    if (usable.length < 2) { openPaywall('pro', CARS.find(c => locked(c))); return; }
+    chooseCar(usable[(at + dir + usable.length) % usable.length]);
+  }
+  let garageFrom = null;
+  const appRoot = document.querySelector('.app'); // made inert while the garage is open: nothing behind it can be focused or tapped
+  function openGarage() { garageFrom = document.activeElement; el.garage.hidden = false; appRoot.inert = true; const on = el.cars.querySelector('.car.on'); if (on) { on.scrollIntoView({ block: 'center' }); on.focus({ preventScroll: true }); } else el.garageClose.focus(); }
+  function closeGarage(restore = true) { if (el.garage.hidden) return; el.garage.hidden = true; appRoot.inert = false; if (restore && garageFrom && garageFrom.focus) garageFrom.focus(); garageFrom = null; }
   function selectCar(c) {
     if (locked(c)) { openPaywall('pro', c); return; } // every way of choosing a car ends up here
     S.car = c; store.set('car', c.id);
@@ -171,7 +174,8 @@
     const im = new Image(); im.alt = c.name; im.decoding = 'async'; im.src = 'img/' + c.id + '.jpg';
     im.onerror = () => { el.carArt.innerHTML = carSvg(); el.carArt.classList.add('fallback'); };
     el.carArt.classList.remove('fallback'); el.carArt.appendChild(im);
-    renderCars(); buildGauge();
+    if (!el.cars.children.length) renderCars(); else markCurrent();
+    buildGauge();
     el.testSpeed.max = Math.round(c.top * unitFactor());
     S.targetSpeed = Math.min(S.targetSpeed, c.top);
     syncRanges();
@@ -205,33 +209,25 @@
     return 2 * r * Math.asin(Math.sqrt(h));
   };
   function setGpsState(state, text) { el.chipGps.dataset.state = state; el.chipGps.innerHTML = '<i></i>' + text; S.gps.state = state; }
-  function setBars(acc) {
-    const n = acc == null ? 0 : acc <= 10 ? 4 : acc <= 25 ? 3 : acc <= 60 ? 2 : 1;
-    [...el.gpsBars.children].forEach((b, i) => b.classList.toggle('on', i < n));
-  }
   function onPosition(pos) {
     const c = pos.coords, now = pos.timestamp || Date.now();
-    let ms = null, src = '—';
-    if (typeof c.speed === 'number' && !Number.isNaN(c.speed)) { ms = c.speed; src = 'Doppler'; }
+    let ms = null;
+    if (typeof c.speed === 'number' && !Number.isNaN(c.speed)) { ms = c.speed; }
     else if (S.gps.last) {
       const dt = (now - S.gps.lastTime) / 1000;
       if (dt > 0.3 && c.accuracy <= 50) {
-        const dist = haversine(S.gps.last, c); ms = dist / dt; src = 'Δ position';
+        const dist = haversine(S.gps.last, c); ms = dist / dt;
         if (dist < c.accuracy * 0.3) ms = 0;
       }
     }
     S.gps.last = { latitude: c.latitude, longitude: c.longitude }; S.gps.lastTime = now;
-    if (typeof c.heading === 'number' && !Number.isNaN(c.heading) && (ms || 0) > 1) S.heading = c.heading;
-    el.gpsAcc.textContent = c.accuracy ? `±${Math.round(c.accuracy)} m` : '—';
-    el.gpsSrc.textContent = src;
-    el.gpsLat.textContent = c.latitude.toFixed(5); el.gpsLon.textContent = c.longitude.toFixed(5);
-    setBars(c.accuracy);
     if (ms !== null) S.targetSpeed = Math.max(0, ms * 3.6);
     setGpsState('ok', `GPS ±${Math.round(c.accuracy)} M`);
+    el.notice.classList.add('hidden'); el.notice.classList.remove('err'); // the permission hint is only useful until a fix arrives
   }
   function onGpsError(err) {
     setGpsState('err', { 1: 'GPS DENIED', 2: 'GPS UNAVAILABLE', 3: 'GPS TIMEOUT' }[err.code] || 'GPS ERROR');
-    el.notice.classList.remove('hidden');
+    el.notice.classList.remove('hidden'); el.notice.classList.add('err');
     el.notice.querySelector('p').textContent = err.code === 1
       ? 'Location permission denied. Enable it for this site in browser settings, then press START ENGINE again.'
       : 'No GPS fix. Go outside or try Test drive. GPS needs HTTPS (or localhost).';
@@ -246,8 +242,7 @@
   function stopGps() {
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     watchId = null; S.gps.last = null;
-    setGpsState('off', 'GPS OFF'); setBars(null);
-    ['gpsAcc', 'gpsSrc', 'gpsLat', 'gpsLon'].forEach(k => el[k].textContent = '—');
+    setGpsState('off', 'GPS OFF');
   }
 
   // ---------- Simulated drive (auto demo) ----------
@@ -282,28 +277,24 @@
     S.running = on; S.sweepT = 0;
     el.startBtn.classList.toggle('running', on);
     el.startLabel.textContent = on ? 'STOP ENGINE' : 'START ENGINE';
-    el.chipEngine.dataset.state = on ? 'ok' : 'off';
-    el.chipEngine.innerHTML = '<i></i>' + (on ? 'ENGINE ON' : 'ENGINE OFF');
+    document.body.classList.toggle('on', on); // the photo glows while the engine runs
     if (on && S.mode === 'gps') startGps(); else if (!on) { stopGps(); S.targetSpeed = 0; el.testSpeed.value = 0; syncRanges(); }
-    if (on) { S.trip = 0; S.top = 0; S.time = 0; hist.length = 0; }
   }
   function setMode(m) {
     if (m !== 'test' && demo) setDemo(false);
     S.mode = m; store.set('mode', m);
     document.querySelectorAll('[data-mode]').forEach(b => { const on = b.dataset.mode === m; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
-    el.chipMode.innerHTML = '<i></i>' + (m === 'gps' ? 'GPS DRIVE' : 'TEST DRIVE');
     el.testBox.hidden = m !== 'test';
-    el.notice.classList.toggle('hidden', m === 'test');
+    el.notice.classList.toggle('hidden', m === 'test' || S.gps.state === 'ok');
     S.targetSpeed = 0; el.testSpeed.value = 0; el.testSpeedVal.textContent = '0'; syncRanges();
     if (m === 'test') stopGps(); else if (S.running) startGps();
   }
   function setUnit(u) {
     S.unit = u; store.set('unit', u);
-    document.querySelectorAll('[data-unit]').forEach(b => b.classList.toggle('on', b.dataset.unit === u));
     const t = u === 'kmh' ? 'km/h' : 'mph';
     el.unit.textContent = t.toUpperCase();
+    el.unit.setAttribute('aria-label', `Speed unit ${t}. Tap to switch to ${u === 'kmh' ? 'mph' : 'km/h'}`);
     document.querySelectorAll('.su').forEach(n => n.textContent = t);
-    el.tTripU.textContent = u === 'kmh' ? 'km' : 'mi';
     el.testSpeed.max = Math.round(S.car.top * unitFactor());
     el.testSpeed.value = Math.round(S.targetSpeed * unitFactor()); syncRanges();
   }
@@ -311,29 +302,9 @@
     [el.volume, el.testSpeed].forEach(r => r.style.setProperty('--p', ((r.value - r.min) / (r.max - r.min) * 100) + '%'));
   }
 
-  // ---------- Speed history graph ----------
-  const hist = []; let histT = 0, graphT = 0;
-  const gctx = el.graph.getContext('2d');
-  function drawGraph() {
-    const dpr = Math.min(devicePixelRatio || 1, 2), w = el.graph.clientWidth, h = el.graph.clientHeight;
-    if (!w) return;
-    if (el.graph.width !== w * dpr) { el.graph.width = w * dpr; el.graph.height = h * dpr; }
-    gctx.setTransform(dpr, 0, 0, dpr, 0, 0); gctx.clearRect(0, 0, w, h);
-    const max = Math.max(60, ...hist, 1) * 1.15;
-    gctx.strokeStyle = 'rgba(255,255,255,.07)'; gctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) { const y = h * i / 4; gctx.beginPath(); gctx.moveTo(0, y); gctx.lineTo(w, y); gctx.stroke(); }
-    if (hist.length < 2) return;
-    const col = `rgb(${accentRgb})`, N = 600, x = i => w - (hist.length - 1 - i) / N * w, y = v => h - v / max * (h - 4) - 2;
-    gctx.beginPath(); hist.forEach((v, i) => i ? gctx.lineTo(x(i), y(v)) : gctx.moveTo(x(i), y(v)));
-    gctx.strokeStyle = col; gctx.lineWidth = 2; gctx.shadowColor = col; gctx.shadowBlur = 8; gctx.stroke(); gctx.shadowBlur = 0;
-    gctx.lineTo(x(hist.length - 1), h); gctx.lineTo(x(0), h); gctx.closePath();
-    const g = gctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, `rgba(${accentRgb},.35)`); g.addColorStop(1, `rgba(${accentRgb},0)`);
-    gctx.fillStyle = g; gctx.fill();
-  }
-
   // ---------- Warp background ----------
   const bctx = el.bg.getContext('2d');
-  const stars = Array.from({ length: 170 }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }));
+  const stars = Array.from({ length: 110 }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }));
   let bw = 0, bh = 0;
   function resizeBg() { const d = Math.min(devicePixelRatio || 1, 1.5); bw = el.bg.width = innerWidth * d; bh = el.bg.height = innerHeight * d; }
   addEventListener('resize', resizeBg); resizeBg();
@@ -354,7 +325,6 @@
 
   // ---------- Frame loop ----------
   const frameHooks = []; let lastT = performance.now(), prevSpeed = 0, domT = 0;
-  const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function frame(t) {
     const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
     S.sweepT += dt;
@@ -370,7 +340,6 @@
     if (S.speed < 0.15 && S.targetSpeed === 0) S.speed = 0;
 
     const acc = dt > 0 ? (S.speed - prevSpeed) / dt : 0; prevSpeed = S.speed;
-    S.g += (clamp(acc / 3.6 / 9.81, -1.5, 1.5) - S.g) * (1 - Math.exp(-dt * 4));
     const thrT = S.running ? clamp(acc / 12 + (S.speed > 1 ? 0.12 : 0), 0, 1) : 0;
     S.throttle += (thrT - S.throttle) * (1 - Math.exp(-dt * 8));
 
@@ -379,9 +348,7 @@
     S.rpm += (tr - S.rpm) * (1 - Math.exp(-dt * (tr > S.rpm ? 10 : 5)));
     if (!S.running && S.sweepT >= 1.5 && S.rpm < 20) S.rpm = 0;
 
-    if (S.running) { S.trip += S.speed / 3600 * dt; S.top = Math.max(S.top, S.speed); S.time += dt; }
-
-    paintSegs(S.rpm / (gaugeMax * 1000)); paintShift(S.rpm);
+    paintSegs(S.rpm / (gaugeMax * 1000));
     spFill.setAttribute('stroke-dasharray', `${clamp(S.speed / S.car.top, 0, 1) * 100} 100`);
     drawBg(dt);
 
@@ -391,19 +358,7 @@
       el.speed.textContent = Math.round(S.speed * unitFactor());
       el.rpm.textContent = Math.round(S.rpm / 10) * 10;
       el.gear.textContent = !S.running ? '–' : S.car.gears === 1 ? 'D' : S.speed < 1 ? 'N' : S.gear + 1;
-      el.throttleFill.style.width = (S.throttle * 100).toFixed(0) + '%';
-      el.tTrip.textContent = (S.trip * unitFactor()).toFixed(2);
-      el.tTop.textContent = Math.round(S.top * unitFactor());
-      const m = Math.floor(S.time / 60), s = Math.floor(S.time % 60);
-      el.tTime.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-      el.tG.textContent = S.g.toFixed(2);
-      el.tLoad.textContent = Math.round(S.throttle * 100);
-      el.tHead.textContent = S.heading == null ? '—' : Math.round(S.heading) + '°';
-      el.tHeadD.textContent = S.heading == null ? ' ' : DIRS[Math.round(S.heading / 45) % 8];
-      el.tMax.textContent = hist.length ? 'MAX ' + Math.round(Math.max(...hist) * unitFactor()) : '—';
     }
-    histT += dt; if (histT > 0.1) { histT = 0; hist.push(S.speed); if (hist.length > 600) hist.shift(); }
-    graphT += dt; if (graphT > 0.1) { graphT = 0; drawGraph(); }
 
     const data = { speed: S.speed, rpm: S.rpm, gear: S.gear + 1, throttle: S.throttle, car: S.car, running: S.running, volume: S.volume / 100, sweeping: S.sweepT < 1.5 };
     for (const f of frameHooks) f(data);
@@ -420,12 +375,32 @@
   hold(el.gasBtn, 'up'); hold(el.brakeBtn, 'down');
   el.startBtn.onclick = () => setRunning(!S.running);
   document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
-  document.querySelectorAll('[data-unit]').forEach(b => b.onclick = () => setUnit(b.dataset.unit));
+  el.unit.onclick = () => setUnit(S.unit === 'kmh' ? 'mph' : 'kmh');
+  el.prevCar.onclick = () => stepCar(-1); el.nextCar.onclick = () => stepCar(1);
+  el.garageBtn.onclick = openGarage; el.garageClose.onclick = () => closeGarage();
+  el.garage.addEventListener('pointerdown', e => { if (e.target === el.garage) closeGarage(); });
+  // arrow keys walk the grid of cars (and never reach the gas / brake shortcuts behind it)
+  el.garage.addEventListener('keydown', e => {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const tiles = [...el.cars.children], i = tiles.indexOf(document.activeElement); if (i < 0) return;
+    e.preventDefault(); e.stopPropagation();
+    let j = i;
+    if (e.key === 'ArrowLeft') j = Math.max(0, i - 1);
+    else if (e.key === 'ArrowRight') j = Math.min(tiles.length - 1, i + 1);
+    else {
+      const r = tiles[i].getBoundingClientRect(), dir = e.key === 'ArrowDown' ? 1 : -1; let best = null;
+      tiles.forEach((t, k) => { const q = t.getBoundingClientRect(), dy = (q.top - r.top) * dir; if (dy < 4) return; const dx = Math.abs(q.left - r.left); if (!best || dy < best.dy - 4 || (Math.abs(dy - best.dy) <= 4 && dx < best.dx)) best = { k, dy, dx }; });
+      if (best) j = best.k;
+    }
+    tiles[j].focus();
+  });
+  addEventListener('keydown', e => { if (e.key === 'Escape') closeGarage(); });
   el.testSpeed.oninput = () => { if (demo) setDemo(false); S.targetSpeed = el.testSpeed.value / unitFactor(); syncRanges(); };
   el.volume.oninput = () => { S.volume = +el.volume.value; el.volumeVal.textContent = S.volume + '%'; store.set('vol', S.volume); syncRanges(); };
   el.fsBtn.onclick = () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); };
+  addEventListener('keydown', e => { if (el.garage.hidden && e.target.tagName !== 'INPUT' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); stepCar(e.key === 'ArrowRight' ? 1 : -1); } });
   const keyMap = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down' };
-  addEventListener('keydown', e => { if (keyMap[e.key] && e.target.tagName !== 'INPUT') { if (demo) setDemo(false); S.keys[keyMap[e.key]] = true; if (e.key.startsWith('Arrow')) e.preventDefault(); } });
+  addEventListener('keydown', e => { if (keyMap[e.key] && e.target.tagName !== 'INPUT' && el.garage.hidden) { if (demo) setDemo(false); S.keys[keyMap[e.key]] = true; if (e.key.startsWith('Arrow')) e.preventDefault(); } });
   addEventListener('keyup', e => { if (keyMap[e.key]) S.keys[keyMap[e.key]] = false; });
   let wake = null;
   setInterval(async () => { try { if (S.running && !wake && navigator.wakeLock) { wake = await navigator.wakeLock.request('screen'); wake.onrelease = () => wake = null; } else if (!S.running && wake) wake.release(); } catch {} }, 2000);
@@ -437,8 +412,9 @@
   selectCar(saved && saved.free ? saved : FIRST_FREE);
   // the license check (paywall.js) tells us when Pro turns on or off
   document.addEventListener('dfx-plan', () => {
+    renderCars(); // the FREE / PRO pills follow the plan
     if (wanted && !locked(wanted)) { const c = wanted; wanted = null; selectCar(c); return; }
-    if (locked(S.car)) selectCar(FIRST_FREE); else renderCars();
+    if (locked(S.car)) selectCar(FIRST_FREE);
   });
   setUnit(store.get('unit') === 'mph' ? 'mph' : 'kmh');
   setMode(store.get('mode') === 'test' ? 'test' : 'gps');
