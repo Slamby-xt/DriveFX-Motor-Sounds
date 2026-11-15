@@ -1,4 +1,4 @@
-/* DriveFX audio — synthesized engine sounds (Web Audio). Driven by DriveFX.onFrame({speed, rpm, gear, throttle, car, running, volume, sweeping}). */
+/* DriveFX audio — engine sounds (Web Audio): the engine model in engine-worklet.js by default, the older recordings + oscillators as fallback. Driven by DriveFX.onFrame({speed, rpm, gear, throttle, car, running, volume, sweeping}). */
 (() => {
   'use strict';
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -46,7 +46,7 @@
       master.connect(comp); comp.connect(ctx.destination); comp.connect(analyser);
       const n = ctx.sampleRate * 2; noiseBuf = ctx.createBuffer(1, n, ctx.sampleRate);
       const d = noiseBuf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-      loadSamples();
+      if (MODEL) loadModel(); else loadSamples();
     }
     if (ctx.state === 'suspended') ctx.resume();
     return true;
@@ -195,10 +195,43 @@
     }
     return v;
   }
-  function swapVoice(car) {
-    const old = voice, t = ctx.currentTime;
+  function dropVoice() {
+    const old = voice, t = ctx.currentTime; voice = null; voiceId = null;
     if (old) { old.out.gain.cancelScheduledValues(t); old.out.gain.setTargetAtTime(0, t, 0.03); if (old.sg) { old.sg.gain.cancelScheduledValues(t); old.sg.gain.setTargetAtTime(0, t, 0.03); } setTimeout(() => { old.src.forEach(n => { try { n.stop(); } catch {} }); old.out.disconnect(); }, 300); }
-    voice = buildVoice(car); voiceId = car.id;
+  }
+  function swapVoice(car) { dropVoice(); voice = buildVoice(car); voiceId = car.id; }
+
+  // ---------- Engine model (the default sound) ----------
+  // engine-worklet.js makes the whole combustion sound sample by sample; this only tells it what the car is doing.
+  // The electric car keeps its own voice above. The older sound (recordings + oscillators) is used only when the
+  // browser has no AudioWorklet, when the model fails to load, or when the page is opened with ?engine=classic.
+  let MODEL = !/[?&]engine=classic(&|$)/.test(location.search);
+  let eng = null, engBus = null;
+  const mp = { gear: 1, cutUntil: 0 };
+  function loadModel() {
+    const classic = () => { MODEL = false; loadSamples(); };
+    if (!ctx.audioWorklet || !window.AudioWorkletNode) return classic();
+    ctx.audioWorklet.addModule('engine-worklet.js?v=1').then(() => {
+      eng = new AudioWorkletNode(ctx, 'drivefx-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+      engBus = ctx.createGain(); engBus.gain.value = 0;
+      eng.connect(engBus); engBus.connect(ctx.destination); engBus.connect(analyser);
+    }).catch(classic);
+  }
+  // returns true when the model is sounding this car (so the classic voice must stay silent)
+  function driveModel(d) {
+    const t = ctx.currentTime, car = d.car, ev = !!(P[car.id] || {}).ev;
+    const rpmF = d.rpm / car.redline, thr = clamp(d.throttle, 0, 1), on = !ev && d.running && d.rpm > 5;
+    if (on && !d.sweeping && d.gear > mp.gear && thr > 0.3) mp.cutUntil = t + 0.09; // upshift under power: ignition cut
+    mp.gear = d.gear;
+    const limiter = on && !d.sweeping && rpmF >= 0.985 && Math.floor(t * 18) % 2;
+    eng.port.postMessage({
+      car: ev ? undefined : car.id, on: on ? 1 : 0, rpm: d.rpm,
+      load: d.sweeping ? 0.85 : clamp(thr * 1.25 + (d.speed > 1 ? 0.1 : 0), 0, 1),
+      overrun: on && !d.sweeping && thr < 0.05 && rpmF > 0.3 ? 1 : 0,
+      cut: limiter || t < mp.cutUntil ? 1 : 0,
+    });
+    engBus.gain.setTargetAtTime(clamp(d.volume, 0, 1), t, 0.05);
+    return !ev;
   }
 
   // ---------- One-shots ----------
@@ -232,6 +265,8 @@
         d = { ...d, car: c, running: true, sweeping: false, speed: 0, gear: 1, rpm: c.idle + (c.redline * 0.97 - c.idle) * k, throttle: t < up + hold ? 0.9 : 0 };
       }
     }
+    if (MODEL && !eng) return; // model still loading: stay silent rather than start in the older sound
+    if (MODEL && driveModel(d)) { if (voice) dropVoice(); return; }
     if (!d.running && !(preview) && !voice) return;
     if (!voice || voiceId !== d.car.id) swapVoice(d.car);
     const v = voice, p = v.p, t = ctx.currentTime, car = d.car;
