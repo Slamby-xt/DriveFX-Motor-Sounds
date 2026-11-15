@@ -51,7 +51,7 @@
   const el = {};
   ['gauge','speed','unit','gear','rpm','startBtn','startLabel','chipGps','notice','testBox',
    'testSpeed','testSpeedVal','cars','carName','carDesc','carArt','carIdx','volume','volumeVal',
-   'simBtn','simLabel','gasBtn','brakeBtn','fsBtn','bg','prevCar','nextCar','garage','garageBtn','garageClose'].forEach(id => el[id] = $(id));
+   'simBtn','simLabel','gasBtn','brakeBtn','fsBtn','bg','prevCar','nextCar','garage','garageBtn','garageClose','viewBtn','focusName','focusDesc'].forEach(id => el[id] = $(id));
 
   const store = {
     get(k) { try { return localStorage.getItem('drivefx.' + k); } catch { return null; } },
@@ -180,6 +180,7 @@
     S.car = c; store.set('car', c.id);
     setTheme(c.color);
     el.carName.textContent = c.name; el.carDesc.textContent = c.desc;
+    el.focusName.textContent = c.name; el.focusDesc.textContent = c.desc;
     el.carIdx.textContent = String(CARS.indexOf(c) + 1).padStart(2, '0') + '/' + String(CARS.length).padStart(2, '0');
     el.carArt.replaceChildren();
     const im = new Image(); im.alt = c.name; im.decoding = 'async'; im.src = 'img/' + c.id + '.jpg';
@@ -279,6 +280,17 @@
       if (!S.running) { setDemo(false); return; } // blocked by the paywall
     }
     else if (S.running) S.targetSpeed = 0;
+  }
+
+  // ---------- View: full cockpit or speedometer only ----------
+  // The small button on the speedometer's top-right corner expands it: the car selector, photo and volume are hidden and the car
+  // name moves to the header. The same button contracts it again. The choice is remembered.
+  function setView(v) {
+    const solo = v === 'solo';
+    document.body.classList.toggle('solo', solo); store.set('view', solo ? 'solo' : 'full');
+    el.viewBtn.setAttribute('aria-pressed', solo);
+    el.viewBtn.setAttribute('aria-label', solo ? 'Contract the speedometer: show the car selector again' : 'Expand the speedometer: hide the car selector');
+    el.viewBtn.title = solo ? 'Show the car selector again' : 'Expand the speedometer';
   }
 
   // ---------- Controls ----------
@@ -388,6 +400,7 @@
   document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
   el.unit.onclick = () => setUnit(S.unit === 'kmh' ? 'mph' : 'kmh');
   el.prevCar.onclick = () => stepCar(-1); el.nextCar.onclick = () => stepCar(1);
+  el.viewBtn.onclick = () => setView(document.body.classList.contains('solo') ? 'full' : 'solo');
   el.garageBtn.onclick = openGarage; el.garageClose.onclick = () => closeGarage();
   el.garage.addEventListener('pointerdown', e => { if (e.target === el.garage) closeGarage(); });
   // arrow keys walk the grid of cars (and never reach the gas / brake shortcuts behind it)
@@ -427,6 +440,7 @@
     if (wanted && !locked(wanted)) { const c = wanted; wanted = null; selectCar(c); return; }
     if (locked(S.car)) selectCar(FIRST_FREE);
   });
+  setView(store.get('view') === 'solo' ? 'solo' : 'full');
   setUnit(store.get('unit') === 'mph' ? 'mph' : 'kmh');
   setMode(store.get('mode') === 'test' ? 'test' : 'gps');
   requestAnimationFrame(frame);

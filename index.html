@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=202611161400">
+<link rel="stylesheet" href="style.css?v=202611161800">
 </head>
 <body>
 <canvas id="bg" aria-hidden="true"></canvas>
@@ -37,6 +37,7 @@
     <button class="on" data-mode="gps" role="tab" aria-selected="true">GPS DRIVE</button>
     <button data-mode="test" role="tab" aria-selected="false">TEST DRIVE</button>
   </div>
+  <div class="focus-car" id="focusCar"><b id="focusName">–</b><small id="focusDesc"></small></div>
   <div class="chips">
     <span class="chip" id="chipGps" data-state="off"><i></i>GPS OFF</span>
     <button class="chip" id="chipSound" data-state="wait" title="Tap to enable and test sound"><i></i>TAP FOR SOUND</button>
@@ -57,6 +58,10 @@
           <button class="unit" id="unit" type="button" aria-label="Switch between km/h and mph" title="Tap to switch units">KM/H</button>
           <div class="sub"><span class="gear">GEAR <b id="gear">–</b></span><span class="rpm"><b id="rpm">0</b> RPM</span></div>
         </div>
+        <button class="view-btn" id="viewBtn" type="button" aria-pressed="false" aria-label="Expand the speedometer: hide the car selector" title="Expand the speedometer">
+          <svg class="i-expand" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="i-shrink" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M20 10h-6V4M4 14h6v6M14 10l7-7M10 14l-7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
       </div>
       <div class="notice" id="notice" role="status">
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.5" fill="currentColor"/></svg>
@@ -118,7 +123,7 @@
   </div>
 </div>
 
-<script src="app.js?v=202611161400"></script>
+<script src="app.js?v=202611161700"></script>
 <script src="config.js?v=202611151800"></script>
 <script src="vendor/qrcode.js?v=1"></script>
 <script src="paywall.js?v=202611151800"></script>

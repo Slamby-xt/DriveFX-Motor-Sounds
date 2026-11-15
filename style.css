@@ -47,6 +47,25 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid
 .seg button.on{color:#05060b;background:var(--accent);box-shadow:0 0 18px rgba(var(--ar),.5)}
 .modes{width:clamp(280px,25vw,400px)}
 
+/* expand / contract button: a small round button on the speedometer's top-right corner (the empty corner outside the dial) */
+.view-btn{position:absolute;top:2px;right:2px;z-index:4;width:clamp(44px,7.4vh,58px);height:clamp(44px,7.4vh,58px);border-radius:50%;display:grid;place-items:center;border:1px solid rgba(var(--ar),.7);background:rgba(var(--ar),.14);color:var(--accent);transition:background .2s,color .2s,transform .1s}
+.view-btn .i-shrink{display:none}
+.view-btn:active{transform:scale(.93);background:rgba(var(--ar),.35)}
+body.solo .view-btn{background:var(--accent);color:#05060b;box-shadow:0 0 22px rgba(var(--ar),.5)}
+body.solo .view-btn .i-expand{display:none}body.solo .view-btn .i-shrink{display:block}
+.focus-car{display:none;min-width:0;flex:1;min-height:52px;flex-direction:column;justify-content:center;text-align:center} /* 52px = height of the mode tabs it replaces, so the header never changes height */
+.focus-car b{display:block;font:900 clamp(15px,2.6vh,24px)/1.2 var(--f-display);letter-spacing:.08em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.focus-car small{display:block;margin-top:2px;font:500 clamp(13px,1.9vh,17px) var(--f-ui);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* speedometer-only view */
+body.solo .modes,body.solo .showcase,body.solo .vol,body.solo .test-box{display:none}
+body.solo .focus-car{display:flex}
+body.solo .layout{grid-template-columns:minmax(0,1fr);position:relative}
+body.solo .side{position:absolute;left:50%;bottom:clamp(14px,2.6vh,30px);transform:translateX(-50%);width:min(400px,62%);z-index:3;display:block}
+body.solo .start{height:clamp(56px,8.5vh,76px);font-size:clamp(13px,2vh,18px)}
+body.solo .notice:not(.err){display:none}
+body.solo .notice.err{bottom:auto;top:6px}
+
 /* ---------- main layout ---------- */
 .layout{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(0,.82fr);gap:clamp(16px,2.8vw,56px);padding:0 var(--pad) clamp(12px,2.4vh,28px);min-height:0}
 
@@ -171,11 +190,12 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 /* ---------- other screen shapes ---------- */
 /* narrow landscape screens (small windows, split views): stack the test dock */
 @media (max-width:1100px) and (min-aspect-ratio:1/1){
-  .top{flex-wrap:wrap;row-gap:8px}.chips{flex-wrap:wrap;justify-content:flex-end}.chip{padding:0 12px;font-size:10px}
-  .modes{width:240px}.brand-text small{display:none}
-  .test-box{grid-template-columns:1fr 1fr;grid-template-areas:"tspeed tspeed" "brake gas" "sim sim"}
+  .top{gap:10px}.brand-text{display:none}.modes{width:auto}.modes button{flex:none;padding:0 14px;letter-spacing:.1em}  /* sized by its labels: a fixed width let TEST DRIVE spill out */
+  .chips{gap:6px}.chip{padding:0 11px;font-size:10px;letter-spacing:.1em}
+  .test-box{grid-template-columns:1fr 1fr 1.5fr;grid-template-areas:"brake gas sim" "tspeed tspeed tspeed"}
   .tspeed{grid-area:tspeed}.brake{grid-area:brake}.gas{grid-area:gas}.sim{grid-area:sim}
 }
+@media (max-width:900px) and (min-aspect-ratio:1/1){.top{flex-wrap:wrap;row-gap:8px}.chips{flex-wrap:wrap;justify-content:flex-end}}
 /* phones in landscape / very short windows: keep everything, smaller photo, page may scroll a little */
 @media (max-height:480px) and (min-aspect-ratio:1/1){
   .app{height:auto;min-height:100dvh}.layout{min-height:auto}.gauge-box{height:calc(100dvh - 90px);min-height:240px}
@@ -188,6 +208,9 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   .chips{order:2;flex:1 1 100%;flex-wrap:wrap;gap:6px}
   .chip{min-height:44px;font-size:10px}
   .modes{order:3;width:100%}
+  body.solo .side{display:contents;position:static;transform:none;width:auto}
+  body.solo .focus-car{order:3;flex:1 1 100%}
+  body.solo .start{height:clamp(64px,10.5vh,104px);font-size:clamp(15px,2.4vh,23px)}
   .garage-btn em{display:none}.garage-btn{min-height:44px;padding:0 12px}
   .notice{width:min(92%,420px);padding:8px 12px}.notice:not(.err) p{display:none}
   .brand-text small{display:none}
