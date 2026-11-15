@@ -155,6 +155,17 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .car .tier{position:absolute;top:14px;left:14px;padding:3px 10px;border-radius:999px;font:700 10px var(--f-display);font-style:normal;letter-spacing:.16em;color:#d7deee;background:rgba(4,5,10,.72);border:1px solid rgba(255,255,255,.3)}
 .car .tier.pro{color:#ffb15c;border-color:rgba(255,138,26,.8);background:rgba(30,16,4,.8)}
 
+/* garage entrance: the panel starts small in the middle of the screen and zooms out to full size while fading in (opacity and transform only) */
+#garage:not([hidden]){animation:g-fade .22s ease-out}
+#garage:not([hidden]) .garage-card{transform-origin:50% 50%;animation:g-zoom .4s cubic-bezier(.16,1,.3,1),g-fade .26s ease-out}
+@keyframes g-fade{from{opacity:0}}
+@keyframes g-zoom{from{transform:scale(.45)}}
+/* ...and closing is the same thing in reverse: shrink back to the middle while fading out. Taps pass through to the cockpit meanwhile. */
+#garage.closing{animation:g-fade-out .26s ease-in forwards;pointer-events:none}
+#garage.closing .garage-card{animation:g-zoom-out .27s cubic-bezier(.7,0,.84,0) forwards,g-fade-out .24s ease-in forwards}
+@keyframes g-fade-out{to{opacity:0}}
+@keyframes g-zoom-out{to{transform:scale(.45)}}
+
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* ---------- other screen shapes ---------- */

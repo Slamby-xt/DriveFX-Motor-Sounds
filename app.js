@@ -162,8 +162,19 @@
   }
   let garageFrom = null;
   const appRoot = document.querySelector('.app'); // made inert while the garage is open: nothing behind it can be focused or tapped
-  function openGarage() { garageFrom = document.activeElement; el.garage.hidden = false; appRoot.inert = true; const on = el.cars.querySelector('.car.on'); if (on) { on.scrollIntoView({ block: 'center' }); on.focus({ preventScroll: true }); } else el.garageClose.focus(); }
-  function closeGarage(restore = true) { if (el.garage.hidden) return; el.garage.hidden = true; appRoot.inert = false; if (restore && garageFrom && garageFrom.focus) garageFrom.focus(); garageFrom = null; }
+  let garageTimer = null;
+  const garageIsOpen = () => !el.garage.hidden && !el.garage.classList.contains('closing'); // a closing garage no longer takes over the keyboard
+  function openGarage() { clearTimeout(garageTimer); el.garage.classList.remove('closing'); garageFrom = document.activeElement; el.garage.hidden = false; appRoot.inert = true; const on = el.cars.querySelector('.car.on');
+    // centre the chosen car using layout positions (scrollIntoView would be thrown off while the panel is still zoomed out)
+    if (on) { el.cars.scrollTop = on.offsetTop - el.cars.offsetTop - (el.cars.clientHeight - on.offsetHeight) / 2; on.focus({ preventScroll: true }); } else el.garageClose.focus(); }
+  // closing plays the entrance backwards (CSS .closing), then hides the garage; the cockpit is usable straight away
+  function closeGarage(restore = true) {
+    if (el.garage.hidden || el.garage.classList.contains('closing')) return;
+    appRoot.inert = false; if (restore && garageFrom && garageFrom.focus) garageFrom.focus(); garageFrom = null;
+    if (REDUCED) { el.garage.hidden = true; return; }
+    el.garage.classList.add('closing');
+    garageTimer = setTimeout(() => { el.garage.classList.remove('closing'); el.garage.hidden = true; }, 300); // a little longer than the 0.26 s animation
+  }
   function selectCar(c) {
     if (locked(c)) { openPaywall('pro', c); return; } // every way of choosing a car ends up here
     S.car = c; store.set('car', c.id);
@@ -398,9 +409,9 @@
   el.testSpeed.oninput = () => { if (demo) setDemo(false); S.targetSpeed = el.testSpeed.value / unitFactor(); syncRanges(); };
   el.volume.oninput = () => { S.volume = +el.volume.value; el.volumeVal.textContent = S.volume + '%'; store.set('vol', S.volume); syncRanges(); };
   el.fsBtn.onclick = () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); };
-  addEventListener('keydown', e => { if (el.garage.hidden && e.target.tagName !== 'INPUT' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); stepCar(e.key === 'ArrowRight' ? 1 : -1); } });
+  addEventListener('keydown', e => { if (!garageIsOpen() && e.target.tagName !== 'INPUT' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); stepCar(e.key === 'ArrowRight' ? 1 : -1); } });
   const keyMap = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down' };
-  addEventListener('keydown', e => { if (keyMap[e.key] && e.target.tagName !== 'INPUT' && el.garage.hidden) { if (demo) setDemo(false); S.keys[keyMap[e.key]] = true; if (e.key.startsWith('Arrow')) e.preventDefault(); } });
+  addEventListener('keydown', e => { if (keyMap[e.key] && e.target.tagName !== 'INPUT' && !garageIsOpen()) { if (demo) setDemo(false); S.keys[keyMap[e.key]] = true; if (e.key.startsWith('Arrow')) e.preventDefault(); } });
   addEventListener('keyup', e => { if (keyMap[e.key]) S.keys[keyMap[e.key]] = false; });
   let wake = null;
   setInterval(async () => { try { if (S.running && !wake && navigator.wakeLock) { wake = await navigator.wakeLock.request('screen'); wake.onrelease = () => wake = null; } else if (!S.running && wake) wake.release(); } catch {} }, 2000);
