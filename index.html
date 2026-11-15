@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=202611161800">
+<link rel="stylesheet" href="style.css?v=202611162200">
 </head>
 <body>
 <canvas id="bg" aria-hidden="true"></canvas>
@@ -41,9 +41,6 @@
   <div class="chips">
     <span class="chip" id="chipGps" data-state="off"><i></i>GPS OFF</span>
     <button class="chip" id="chipSound" data-state="wait" title="Tap to enable and test sound"><i></i>TAP FOR SOUND</button>
-    <button class="icon-btn" id="fsBtn" title="Fullscreen" aria-label="Fullscreen">
-      <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
   </div>
 </header>
 
@@ -89,6 +86,9 @@
     <section class="showcase" aria-label="Selected car">
       <div class="photo">
         <div class="car-art" id="carArt"></div>
+        <button class="fav-btn" id="favBtn" type="button" aria-pressed="false" aria-label="Add to favourites" title="Add to favourites">
+          <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 2.6l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.2 1.2-6.5L2.5 9.5l6.6-.9z" stroke-linejoin="round"/></svg>
+        </button>
         <button class="nav prev" id="prevCar" type="button" aria-label="Previous car"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M15 4l-8 8 8 8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button class="nav next" id="nextCar" type="button" aria-label="Next car"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M9 4l8 8-8 8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button class="garage-btn" id="garageBtn" type="button" aria-haspopup="dialog" aria-controls="garage">
@@ -123,7 +123,7 @@
   </div>
 </div>
 
-<script src="app.js?v=202611161700"></script>
+<script src="app.js?v=202611162200"></script>
 <script src="config.js?v=202611151800"></script>
 <script src="vendor/qrcode.js?v=1"></script>
 <script src="paywall.js?v=202611151800"></script>

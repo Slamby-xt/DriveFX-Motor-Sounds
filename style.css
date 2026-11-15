@@ -22,11 +22,11 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid
 .app{position:relative;z-index:1;display:grid;grid-template-rows:auto minmax(0,1fr);height:100vh;height:100dvh}
 
 /* header */
-.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(8px,1.5vh,16px) var(--pad)}
-.brand{display:flex;align-items:center;gap:12px;flex:none}
-.logo{color:var(--accent);filter:drop-shadow(0 0 8px rgba(var(--ar),.8));display:grid}
+.top{display:flex;flex-wrap:wrap;row-gap:8px;align-items:center;justify-content:space-between;gap:16px;padding:clamp(8px,1.5vh,16px) var(--pad)} /* wraps rather than ever hiding the brand */
+.brand{display:flex;align-items:center;gap:12px;flex:none;max-width:100%} /* the logo is never hidden, squeezed or wrapped, at any screen size */
+.logo{color:var(--accent);filter:drop-shadow(0 0 8px rgba(var(--ar),.8));display:grid;flex:none}
 .brand-text{display:flex;flex-direction:column;line-height:1}
-.brand-text b{font:900 18px var(--f-display);letter-spacing:.14em}
+.brand-text b{font:900 clamp(15px,2.2vw,18px) var(--f-display);letter-spacing:.14em;white-space:nowrap}
 .brand-text b i{font-style:normal;color:var(--accent);text-shadow:0 0 12px rgba(var(--ar),.9)}
 .brand-text small{font:600 10px var(--f-display);letter-spacing:.42em;color:var(--mute);margin-top:5px;text-transform:uppercase}
 .chips{display:flex;gap:8px;align-items:center;flex:none}
@@ -38,8 +38,6 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid
 .chip[data-state=wait] i{opacity:1;animation:blink .8s infinite}
 .chip[data-state=err]{color:#ff6b7f;border-color:rgba(255,59,59,.45);background:rgba(255,59,59,.08)}
 @keyframes blink{50%{opacity:.25}}
-.icon-btn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line);color:var(--mute);background:rgba(255,255,255,.04);transition:.2s}
-.icon-btn:hover{color:var(--accent);border-color:rgba(var(--ar),.5)}
 
 .seg{display:flex;padding:4px;gap:4px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.04)}
 .seg button{flex:1;min-height:44px;padding:0 14px;border-radius:10px;font:700 11px var(--f-display);letter-spacing:.16em;color:var(--mute);transition:.2s;white-space:nowrap}
@@ -129,6 +127,17 @@ body.on .photo{border-color:rgba(var(--ar),.85);box-shadow:0 0 46px rgba(var(--a
 .nav{position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:clamp(52px,8vh,68px);height:clamp(52px,8vh,68px);border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(4,5,10,.6);border:1px solid rgba(255,255,255,.25);transition:background .15s,transform .1s}
 .nav.prev{left:12px}.nav.next{right:12px}
 .nav:active{background:var(--accent);color:#05060b;transform:translateY(-50%) scale(.94)}
+/* favourite star: gold, top-left of the photo (mirrors ALL CARS on the right). Outline = not a favourite, filled and glowing = favourite. */
+.fav-btn{position:absolute;top:12px;left:12px;z-index:2;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(4,5,10,.62);border:1px solid rgba(255,255,255,.28);transition:color .2s,background .2s,border-color .2s,box-shadow .25s,transform .1s}
+.fav-btn svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;transition:fill .2s,filter .25s}
+.fav-btn:active{transform:scale(.92)}
+.fav-btn[aria-pressed=true]{color:#ffc94d;background:rgba(36,25,4,.72);border-color:rgba(255,201,77,.85);box-shadow:0 0 20px rgba(255,196,61,.5)}
+.fav-btn[aria-pressed=true] svg{fill:currentColor;filter:drop-shadow(0 0 6px rgba(255,196,61,.8))}
+.fav-btn::after{content:"";position:absolute;inset:-2px;border-radius:50%;border:2px solid #ffc94d;opacity:0;pointer-events:none}
+.fav-btn.pop svg{animation:fav-pop .55s cubic-bezier(.2,1.5,.4,1)}
+.fav-btn.pop::after{animation:fav-ring .6s ease-out}
+@keyframes fav-pop{0%{transform:scale(.6) rotate(-25deg)}55%{transform:scale(1.3) rotate(8deg)}100%{transform:scale(1) rotate(0)}}
+@keyframes fav-ring{from{opacity:.85;transform:scale(.9)}to{opacity:0;transform:scale(1.7)}}
 .garage-btn{position:absolute;top:12px;right:12px;z-index:2;display:flex;align-items:center;gap:10px;min-height:48px;padding:0 16px;border-radius:14px;border:1px solid rgba(var(--ar),.6);background:rgba(4,5,10,.68);color:var(--accent);font:700 11px var(--f-display);letter-spacing:.14em}
 .garage-btn em{font-style:normal;color:var(--mute);letter-spacing:.08em}
 .garage-btn:active{background:var(--accent);color:#05060b}
@@ -171,6 +180,17 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .car b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.5em;font:700 12px/1.25 var(--f-display);letter-spacing:.03em}
 .car span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12.5px;line-height:1.25;color:var(--mute)}
 .car.on{border-color:var(--c);background:color-mix(in oklab,var(--c),transparent 88%);box-shadow:0 0 20px color-mix(in oklab,var(--c),transparent 70%)}
+/* garage: favourites first, then a separator, then everything else */
+.fav-head,.fav-sep{grid-column:1/-1}
+.fav-head{display:flex;align-items:center;gap:8px;padding:2px 4px 0;font:700 11px var(--f-display);letter-spacing:.24em;color:#ffc94d}
+.fav-head svg{width:15px;height:15px;fill:currentColor;stroke:currentColor;stroke-width:1.5;filter:drop-shadow(0 0 5px rgba(255,196,61,.7))}
+.fav-sep{display:flex;align-items:center;gap:14px;margin:8px 0 4px;font:700 10px var(--f-display);letter-spacing:.26em;color:var(--mute)}
+.fav-sep::before,.fav-sep::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(255,201,77,.55))}
+.fav-sep::after{background:linear-gradient(270deg,transparent,rgba(255,201,77,.55))}
+.car.is-fav{border-color:rgba(255,201,77,.3)}
+.car.is-fav.on{border-color:var(--c)}
+.car .fav-mark{position:absolute;top:13px;right:13px;display:grid;width:26px;height:26px;place-items:center;border-radius:50%;background:rgba(4,5,10,.7);color:#ffc94d}
+.car .fav-mark svg{width:16px;height:16px;fill:currentColor;stroke:currentColor;stroke-width:1.5;filter:drop-shadow(0 0 4px rgba(255,196,61,.8))}
 .car .tier{position:absolute;top:14px;left:14px;padding:3px 10px;border-radius:999px;font:700 10px var(--f-display);font-style:normal;letter-spacing:.16em;color:#d7deee;background:rgba(4,5,10,.72);border:1px solid rgba(255,255,255,.3)}
 .car .tier.pro{color:#ffb15c;border-color:rgba(255,138,26,.8);background:rgba(30,16,4,.8)}
 
@@ -185,17 +205,20 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 @keyframes g-fade-out{to{opacity:0}}
 @keyframes g-zoom-out{to{transform:scale(.45)}}
 
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 
 /* ---------- other screen shapes ---------- */
 /* narrow landscape screens (small windows, split views): stack the test dock */
 @media (max-width:1100px) and (min-aspect-ratio:1/1){
-  .top{gap:10px}.brand-text{display:none}.modes{width:auto}.modes button{flex:none;padding:0 14px;letter-spacing:.1em}  /* sized by its labels: a fixed width let TEST DRIVE spill out */
+  .top{gap:10px}.brand-text small{display:none}.modes{width:auto}.modes button{flex:none;padding:0 14px;letter-spacing:.1em}  /* sized by its labels: a fixed width let TEST DRIVE spill out */
   .chips{gap:6px}.chip{padding:0 11px;font-size:10px;letter-spacing:.1em}
   .test-box{grid-template-columns:1fr 1fr 1.5fr;grid-template-areas:"brake gas sim" "tspeed tspeed tspeed"}
   .tspeed{grid-area:tspeed}.brake{grid-area:brake}.gas{grid-area:gas}.sim{grid-area:sim}
 }
-@media (max-width:900px) and (min-aspect-ratio:1/1){.top{flex-wrap:wrap;row-gap:8px}.chips{flex-wrap:wrap;justify-content:flex-end}}
+/* tighter header for the 900-1000px windows that car browsers give (still one row, still with the brand) */
+@media (max-width:1000px) and (min-aspect-ratio:1/1){.top{gap:8px;padding-left:14px;padding-right:14px}.brand{gap:9px}.chip{padding:0 9px}.modes button{padding:0 11px}}
+@media (max-width:940px) and (min-aspect-ratio:1/1){.chip i{display:none}}
+@media (max-width:900px) and (min-aspect-ratio:1/1){.chips{flex-wrap:wrap;justify-content:flex-end}}
 /* phones in landscape / very short windows: keep everything, smaller photo, page may scroll a little */
 @media (max-height:480px) and (min-aspect-ratio:1/1){
   .app{height:auto;min-height:100dvh}.layout{min-height:auto}.gauge-box{height:calc(100dvh - 90px);min-height:240px}

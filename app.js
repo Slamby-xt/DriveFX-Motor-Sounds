@@ -51,7 +51,7 @@
   const el = {};
   ['gauge','speed','unit','gear','rpm','startBtn','startLabel','chipGps','notice','testBox',
    'testSpeed','testSpeedVal','cars','carName','carDesc','carArt','carIdx','volume','volumeVal',
-   'simBtn','simLabel','gasBtn','brakeBtn','fsBtn','bg','prevCar','nextCar','garage','garageBtn','garageClose','viewBtn','focusName','focusDesc'].forEach(id => el[id] = $(id));
+   'simBtn','simLabel','gasBtn','brakeBtn','bg','prevCar','nextCar','garage','garageBtn','garageClose','viewBtn','focusName','focusDesc','favBtn'].forEach(id => el[id] = $(id));
 
   const store = {
     get(k) { try { return localStorage.getItem('drivefx.' + k); } catch { return null; } },
@@ -128,9 +128,26 @@
       <circle cx="196" cy="68" r="14" fill="#05060b" stroke="var(--accent)" stroke-width="2"/><circle cx="196" cy="68" r="5" fill="var(--accent)"/>
       <path d="M232 52h14" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>`;
   }
-  function renderCars() {
-    el.cars.replaceChildren();
-    CARS.forEach(c => {
+  // ---------- Favourites ----------
+  // The gold star on the photo card toggles the selected car. Favourites are saved on this device; the garage lists them first, above a separator.
+  const favs = new Set();
+  try { const a = JSON.parse(store.get('favs') || '[]'); if (Array.isArray(a)) a.forEach(id => { if (CARS.some(c => c.id === id)) favs.add(id); }); } catch {}
+  const saveFavs = () => store.set('favs', JSON.stringify(CARS.filter(c => favs.has(c.id)).map(c => c.id)));
+  const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.2 1.2-6.5L2.5 9.5l6.6-.9z" stroke-linejoin="round"/></svg>';
+  function paintFav() {
+    const on = favs.has(S.car.id), n = S.car.name;
+    el.favBtn.setAttribute('aria-pressed', on);
+    el.favBtn.setAttribute('aria-label', on ? `Remove ${n} from favourites` : `Add ${n} to favourites`);
+    el.favBtn.title = on ? 'Remove from favourites' : 'Add to favourites';
+  }
+  function toggleFav() {
+    const id = S.car.id, add = !favs.has(id);
+    if (add) favs.add(id); else favs.delete(id);
+    saveFavs(); paintFav(); renderCars();
+    if (add) { el.favBtn.classList.remove('pop'); void el.favBtn.offsetWidth; el.favBtn.classList.add('pop'); setTimeout(() => el.favBtn.classList.remove('pop'), 650); }
+  }
+
+  function carTile(c, isFav) {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'car'; b.dataset.id = c.id;
       b.style.setProperty('--c', c.color);
@@ -141,13 +158,23 @@
       th.onerror = () => { const ph = document.createElement('div'); ph.className = 'th ph'; th.replaceWith(ph); }; // no photo yet: keep the tile the same shape
       b.append(th, n, s);
       if (!isPro()) { const t = document.createElement('em'); t.className = 'tier ' + (c.free ? 'free' : 'pro'); t.textContent = c.free ? 'FREE' : 'PRO'; b.appendChild(t); }
+      if (isFav) { b.classList.add('is-fav'); const m = document.createElement('i'); m.className = 'fav-mark'; m.innerHTML = STAR; b.append(m); b.setAttribute('aria-label', `${c.name}, favourite${isPro() ? '' : c.free ? ', free' : ', Pro, locked'}. ${c.desc}`); }
       b.onclick = () => { closeGarage(); chooseCar(c); };
-      el.cars.appendChild(b);
-    });
+      return b;
+  }
+  function renderCars() {
+    el.cars.replaceChildren();
+    const fav = CARS.filter(c => favs.has(c.id)), rest = CARS.filter(c => !favs.has(c.id));
+    if (fav.length) { // with no favourites nothing at all is added above the grid
+      const h = document.createElement('div'); h.className = 'fav-head'; h.setAttribute('aria-hidden', 'true'); h.innerHTML = STAR + '<span>FAVOURITES</span>'; el.cars.appendChild(h);
+      fav.forEach(c => el.cars.appendChild(carTile(c, true)));
+      if (rest.length) { const sep = document.createElement('div'); sep.className = 'fav-sep'; sep.setAttribute('aria-hidden', 'true'); sep.innerHTML = '<span>ALL CARS</span>'; el.cars.appendChild(sep); }
+    }
+    rest.forEach(c => el.cars.appendChild(carTile(c, false)));
     markCurrent();
   }
   function markCurrent() {
-    [...el.cars.children].forEach(b => { const on = b.dataset.id === S.car.id; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    [...el.cars.querySelectorAll('.car')].forEach(b => { const on = b.dataset.id === S.car.id; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
   }
   // the one way the UI picks a car: Pro cars open the upgrade window instead, free ones are selected and previewed
   function chooseCar(c) {
@@ -181,6 +208,7 @@
     setTheme(c.color);
     el.carName.textContent = c.name; el.carDesc.textContent = c.desc;
     el.focusName.textContent = c.name; el.focusDesc.textContent = c.desc;
+    paintFav();
     el.carIdx.textContent = String(CARS.indexOf(c) + 1).padStart(2, '0') + '/' + String(CARS.length).padStart(2, '0');
     el.carArt.replaceChildren();
     const im = new Image(); im.alt = c.name; im.decoding = 'async'; im.src = 'img/' + c.id + '.jpg';
@@ -400,13 +428,14 @@
   document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
   el.unit.onclick = () => setUnit(S.unit === 'kmh' ? 'mph' : 'kmh');
   el.prevCar.onclick = () => stepCar(-1); el.nextCar.onclick = () => stepCar(1);
+  el.favBtn.onclick = toggleFav;
   el.viewBtn.onclick = () => setView(document.body.classList.contains('solo') ? 'full' : 'solo');
   el.garageBtn.onclick = openGarage; el.garageClose.onclick = () => closeGarage();
   el.garage.addEventListener('pointerdown', e => { if (e.target === el.garage) closeGarage(); });
   // arrow keys walk the grid of cars (and never reach the gas / brake shortcuts behind it)
   el.garage.addEventListener('keydown', e => {
     if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-    const tiles = [...el.cars.children], i = tiles.indexOf(document.activeElement); if (i < 0) return;
+    const tiles = [...el.cars.querySelectorAll('.car')], i = tiles.indexOf(document.activeElement); if (i < 0) return;
     e.preventDefault(); e.stopPropagation();
     let j = i;
     if (e.key === 'ArrowLeft') j = Math.max(0, i - 1);
@@ -421,7 +450,6 @@
   addEventListener('keydown', e => { if (e.key === 'Escape') closeGarage(); });
   el.testSpeed.oninput = () => { if (demo) setDemo(false); S.targetSpeed = el.testSpeed.value / unitFactor(); syncRanges(); };
   el.volume.oninput = () => { S.volume = +el.volume.value; el.volumeVal.textContent = S.volume + '%'; store.set('vol', S.volume); syncRanges(); };
-  el.fsBtn.onclick = () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); };
   addEventListener('keydown', e => { if (!garageIsOpen() && e.target.tagName !== 'INPUT' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); stepCar(e.key === 'ArrowRight' ? 1 : -1); } });
   const keyMap = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down' };
   addEventListener('keydown', e => { if (keyMap[e.key] && e.target.tagName !== 'INPUT' && !garageIsOpen()) { if (demo) setDemo(false); S.keys[keyMap[e.key]] = true; if (e.key.startsWith('Arrow')) e.preventDefault(); } });
