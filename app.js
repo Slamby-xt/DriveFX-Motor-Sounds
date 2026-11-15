@@ -4,8 +4,13 @@
 
   // ---------- Cars ----------
   // Real cars only. desc is the engine footnote shown on each card: engine · redline · gearbox.
+  // free: true = open to everybody (5 cars). Every other car is Pro: it needs an active subscription (see paywall.js).
   const CARS = [
-    { id: 'flat6',    name: 'Porsche 911 GT3 (992)', desc: '4.0 L flat-six · 9,000 rpm · 7-speed PDK', redline: 9000, idle: 900, gears: 7, top: 318, color: '#ff7a1a' },
+    { id: 'flat6',    name: 'Porsche 911 GT3 (992)', desc: '4.0 L flat-six · 9,000 rpm · 7-speed PDK', redline: 9000, idle: 900, gears: 7, top: 318, color: '#ff7a1a', free: true },
+    { id: 'v8',       name: 'Dodge Challenger SRT Hellcat', desc: '6.2 L supercharged V8 · 6,200 rpm · 6-speed manual', redline: 6200, idle: 700, gears: 6, top: 320, color: '#ff2d55', free: true },
+    { id: 'i6t',      name: 'BMW M3 Competition (G80)', desc: '3.0 L twin-turbo inline-six · 7,200 rpm · 8-speed automatic', redline: 7200, idle: 800, gears: 8, top: 290, color: '#4d8bff', free: true },
+    { id: 'muscle',   name: 'Ford Mustang Boss 429 (1969)', desc: '7.0 L big-block V8 · 6,000 rpm · 4-speed manual', redline: 6000, idle: 750, gears: 4, top: 190, color: '#2ea8ff', free: true },
+    { id: 'roadster', name: 'Tesla Roadster (2008)', desc: 'AC induction motor · 14,000 rpm · single-speed', redline: 14000, idle: 0, gears: 1, top: 201, color: '#00e5ff', free: true },
     { id: 'gt3rs',    name: 'Porsche 911 GT3 RS (991.2)', desc: '4.0 L flat-six · 9,000 rpm · 7-speed PDK', redline: 9000, idle: 900, gears: 7, top: 312, color: '#7dff3a' },
     { id: 'turbos',   name: 'Porsche 911 Turbo S (992)', desc: '3.7 L twin-turbo flat-six · 7,200 rpm · 8-speed PDK', redline: 7200, idle: 800, gears: 8, top: 330, color: '#cfd8e3' },
     { id: 'v12',      name: 'Ferrari 812 Superfast', desc: '6.5 L V12 · 8,900 rpm · 7-speed dual-clutch', redline: 8900, idle: 1000, gears: 7, top: 340, color: '#ffd23f' },
@@ -13,9 +18,6 @@
     { id: 'v10',      name: 'Lamborghini Huracán', desc: '5.2 L V10 · 8,500 rpm · 7-speed dual-clutch', redline: 8500, idle: 950, gears: 7, top: 325, color: '#a6ff00' },
     { id: 'veneno',   name: 'Lamborghini Veneno', desc: '6.5 L V12 · 8,500 rpm · 7-speed single-clutch', redline: 8500, idle: 950, gears: 7, top: 355, color: '#aeb6c2' },
     { id: 'urus',     name: 'Lamborghini Urus', desc: '4.0 L twin-turbo V8 · 6,800 rpm · 8-speed automatic', redline: 6800, idle: 750, gears: 8, top: 305, color: '#ffc21a' },
-    { id: 'v8',       name: 'Dodge Challenger SRT Hellcat', desc: '6.2 L supercharged V8 · 6,200 rpm · 6-speed manual', redline: 6200, idle: 700, gears: 6, top: 320, color: '#ff2d55' },
-    { id: 'muscle',   name: 'Ford Mustang Boss 429 (1969)', desc: '7.0 L big-block V8 · 6,000 rpm · 4-speed manual', redline: 6000, idle: 750, gears: 4, top: 190, color: '#2ea8ff' },
-    { id: 'i6t',      name: 'BMW M3 Competition (G80)', desc: '3.0 L twin-turbo inline-six · 7,200 rpm · 8-speed automatic', redline: 7200, idle: 800, gears: 8, top: 290, color: '#4d8bff' },
     { id: 'rs6',      name: 'Audi RS 6 Avant (C8)', desc: '4.0 L twin-turbo V8 · 6,800 rpm · 8-speed automatic', redline: 6800, idle: 750, gears: 8, top: 305, color: '#8f9aa3' },
     { id: 'g63',      name: 'Mercedes-AMG G 63', desc: '4.0 L twin-turbo V8 · 7,000 rpm · 9-speed automatic', redline: 7000, idle: 700, gears: 9, top: 220, color: '#e6d3a3' },
     { id: 'gtr',      name: 'Nissan GT-R NISMO (R35)', desc: '3.8 L twin-turbo V6 · 7,100 rpm · 6-speed dual-clutch', redline: 7100, idle: 800, gears: 6, top: 315, color: '#f2f5ff' },
@@ -27,12 +29,19 @@
     { id: 'boxer',    name: 'Subaru Impreza WRX STI', desc: '2.5 L turbo flat-four · 6,700 rpm · 6-speed manual', redline: 6700, idle: 850, gears: 6, top: 255, color: '#00ffd5' },
     { id: 'rotary',   name: 'Mazda RX-7 (FD)', desc: '1.3 L twin-turbo twin-rotor · 8,000 rpm · 5-speed manual', redline: 8000, idle: 900, gears: 5, top: 250, color: '#ff4fd8' },
     { id: 'hearse',   name: 'Cadillac Miller-Meteor Hearse (1966)', desc: '7.0 L V8 · 5,000 rpm · 3-speed automatic', redline: 5000, idle: 600, gears: 3, top: 170, color: '#b48cff' },
-    { id: 'roadster', name: 'Tesla Roadster (2008)', desc: 'AC induction motor · 14,000 rpm · single-speed', redline: 14000, idle: 0, gears: 1, top: 201, color: '#00e5ff' },
   ];
+
+  // ---------- Free / Pro ----------
+  // DriveFX.isPro and DriveFX.paywall are provided by paywall.js. Until it has checked the license, nobody is Pro.
+  const isPro = () => !!(window.DriveFX && DriveFX.isPro && DriveFX.isPro());
+  const locked = c => !c.free && !isPro();
+  const openPaywall = (mode, car) => { if (car) wanted = car; /* selected for you once Pro unlocks */ if (window.DriveFX && DriveFX.paywall) DriveFX.paywall.open(mode, car); };
+  const FIRST_FREE = CARS.find(c => c.free);
+  let wanted = null; // the car saved last time, if it is a Pro car: selected as soon as the license check confirms Pro
 
   // ---------- State ----------
   const S = {
-    car: CARS[0], running: false, mode: 'gps', unit: 'kmh', volume: 100,
+    car: FIRST_FREE, running: false, mode: 'gps', unit: 'kmh', volume: 100,
     speed: 0, targetSpeed: 0, rpm: 0, gear: 0, throttle: 0, g: 0,
     trip: 0, top: 0, time: 0, heading: null, sweepT: 0,
     gps: { state: 'off', acc: null, last: null, lastTime: 0 },
@@ -144,11 +153,16 @@
       const s = document.createElement('span'); s.textContent = c.desc;
       const th = new Image(); th.src = 'img/' + c.id + '.jpg'; th.alt = ''; th.className = 'th'; th.loading = 'lazy'; th.onerror = () => th.remove();
       b.append(th, n, s, document.createElement('i'));
-      b.onclick = () => { selectCar(c); window.DriveFX && DriveFX.audio && DriveFX.audio.preview(c); };
+      if (!isPro()) { const t = document.createElement('em'); t.className = 'tier ' + (c.free ? 'free' : 'pro'); t.textContent = c.free ? 'FREE' : 'PRO'; b.appendChild(t); }
+      b.onclick = () => {
+        if (locked(c)) { openPaywall('pro', c); return; }
+        wanted = null; selectCar(c); window.DriveFX && DriveFX.audio && DriveFX.audio.preview(c);
+      };
       el.cars.appendChild(b);
     });
   }
   function selectCar(c) {
+    if (locked(c)) { openPaywall('pro', c); return; } // every way of choosing a car ends up here
     S.car = c; store.set('car', c.id);
     setTheme(c.color);
     el.carName.textContent = c.name; el.carDesc.textContent = c.desc;
@@ -418,10 +432,17 @@
 
   // init
   const vol = store.get('vol'); if (vol !== null && +vol >= 0 && +vol <= 100) { S.volume = +vol; el.volume.value = vol; el.volumeVal.textContent = vol + '%'; }
-  selectCar(CARS.find(c => c.id === store.get('car')) || CARS[0]);
+  const saved = CARS.find(c => c.id === store.get('car'));
+  if (saved && !saved.free) wanted = saved;
+  selectCar(saved && saved.free ? saved : FIRST_FREE);
+  // the license check (paywall.js) tells us when Pro turns on or off
+  document.addEventListener('dfx-plan', () => {
+    if (wanted && !locked(wanted)) { const c = wanted; wanted = null; selectCar(c); return; }
+    if (locked(S.car)) selectCar(FIRST_FREE); else renderCars();
+  });
   setUnit(store.get('unit') === 'mph' ? 'mph' : 'kmh');
   setMode(store.get('mode') === 'test' ? 'test' : 'gps');
   requestAnimationFrame(frame);
 
-  window.DriveFX = { state: S, cars: CARS, onFrame: fn => frameHooks.push(fn), stop: () => setRunning(false) };
+  window.DriveFX = { state: S, cars: CARS, onFrame: fn => frameHooks.push(fn), stop: () => setRunning(false), isPro: () => false };
 })();
