@@ -8,3 +8,4 @@ worker/node_modules/
 _candidates/
 _processed/
 _incoming/
+worker/.dev.vars

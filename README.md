@@ -17,11 +17,16 @@ Run locally: `python -m http.server 5173` and open http://localhost:5173
 - A Pro license belongs to the browser's device ID (`DFX-XXXX-XXXX`). Choosing a Pro car, or running out of free time, opens the upgrade window with the three plans and a QR code to pay from a phone.
 - **Free minutes are counted on the server too** (`POST /trial` in `worker/index.js`), by device ID and by a hash of device traits + network, so clearing cookies or opening a private window on the same device and network does not give a new trial. Only keyed hashes are stored. Known limits: someone who changes device, browser or network, or edits the page's code, gets a fresh trial; identical devices on one network (e.g. cloned school laptops) share one trial; the per-network cap is best-effort under bursts because KV has no atomic counter (a Durable Object would fix that).
 
-## Payments: what is left to connect Stripe
+## Payments (Stripe)
 
-1. In Stripe create three products (monthly, yearly, one-time lifetime) and a **Payment Link** for each. Turn on collecting the customer's email.
-2. Paste the three `https://buy.stripe.com/...` URLs into `config.js` (`payLinks`). Until they are set the pay button says "PAYMENTS OPEN SOON". The page adds `?client_reference_id=<device ID>` to each link.
-3. Add a Stripe webhook that calls `activate(env, id, plan, exp)` in `worker/index.js` (`id` = the `client_reference_id`): `checkout.session.completed` and `invoice.paid` grant (monthly/yearly: until the period end; lifetime: `exp` 0), `customer.subscription.deleted` ends it. Store the Stripe signing secret with `wrangler secret put STRIPE_WEBHOOK_SECRET`.
-4. Deploy the worker (`cd worker && npx wrangler deploy`) and set the trial-hash secret once: `npx wrangler secret put TRIAL_PEPPER` (any long random text).
+- Three Stripe products (`DriveFX Pro Monthly`, `Yearly` = subscriptions that renew automatically, `Lifetime` = one payment). Each price has the same number in USD, EUR and GBP (2.99 / 29.99 / 49.99). `tools/stripe-setup.mjs` creates them (and the billing portal and webhook) in a sandbox or live; it is safe to re-run.
+- The currency is suggested from the visitor's country (eurozone: EUR, UK: GBP, everyone else: USD) and can be switched in the payment window.
+- Pay button and QR code open `GET /go` on the license server, which creates a Stripe Checkout session. Stripe calls `POST /stripe-webhook`, which grants Pro until the paid period ends (+2 days); full refunds and disputes revoke it; Lifetime is never downgraded by a renewal.
+- Cancel / change card / invoices: **Manage subscription** in the Pro window opens Stripe's billing portal login page: Stripe emails the customer a sign-in link, so a device ID alone never opens anyone's billing. Cancelling keeps Pro until the paid period ends.
+- Lost ID: the ID is on the Stripe receipt and the success page; otherwise admin panel > "Find by email" > "Move to new ID".
+- Worker secrets: `STRIPE_KEY` (restricted key), `STRIPE_WEBHOOK_SECRET`, `TRIAL_PEPPER`. Optional vars: `TAX=1` (Stripe Tax at checkout), `TERMS_CONSENT=1` (terms checkbox; set the terms URL `https://drivefx.pro/terms.html` in the Stripe dashboard first).
+- Local testing: `cd worker && npx wrangler dev` with `worker/.dev.vars` (git-ignored), and `stripe listen --forward-to localhost:8787/stripe-webhook`.
 
-The admin panel still works for manual grants and revokes.
+The admin panel still works for manual grants and revokes. `terms.html` is a plain-language draft: read it before going live.
+
+Known limits of the payment code: license writes go through KV, which has no transactions, so two webhook events for the same device handled in the same instant could race (a Durable Object would serialise them); the per-address rate limits are best-effort for the same reason; buying two subscriptions in parallel from two open checkout pages bills both (refund one by hand in Stripe, then use the admin panel if needed).

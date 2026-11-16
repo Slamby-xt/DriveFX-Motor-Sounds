@@ -6,3 +6,6 @@ workers_dev = true
 [[kv_namespaces]]
 binding = "LICENSES"
 id = "b9471f7f11f448e78946ffd4e6ca5981"
+
+[vars]
+TERMS_CONSENT = "1"   # the terms checkbox at checkout; needs the terms URL set in Stripe (Settings > Public details). Local dev turns it off in .dev.vars
