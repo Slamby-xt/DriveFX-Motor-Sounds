@@ -154,7 +154,7 @@
       b.setAttribute('role', 'option');
       const n = document.createElement('b'); n.textContent = c.name;
       const s = document.createElement('span'); s.textContent = c.desc;
-      const th = new Image(); th.src = 'img/' + c.id + '.jpg'; th.alt = ''; th.className = 'th'; th.loading = 'lazy';
+      const th = new Image(); th.src = 'img/' + c.id + '.jpg?v=2'; th.alt = ''; th.className = 'th'; th.loading = 'lazy';
       th.onerror = () => { const ph = document.createElement('div'); ph.className = 'th ph'; th.replaceWith(ph); }; // no photo yet: keep the tile the same shape
       b.append(th, n, s);
       if (!isPro()) { const t = document.createElement('em'); t.className = 'tier ' + (c.free ? 'free' : 'pro'); t.textContent = c.free ? 'FREE' : 'PRO'; b.appendChild(t); }
@@ -211,7 +211,7 @@
     paintFav();
     el.carIdx.textContent = String(CARS.indexOf(c) + 1).padStart(2, '0') + '/' + String(CARS.length).padStart(2, '0');
     el.carArt.replaceChildren();
-    const im = new Image(); im.alt = c.name; im.decoding = 'async'; im.src = 'img/' + c.id + '.jpg';
+    const im = new Image(); im.alt = c.name; im.decoding = 'async'; im.src = 'img/' + c.id + '.jpg?v=2';
     im.onerror = () => { el.carArt.innerHTML = carSvg(); el.carArt.classList.add('fallback'); };
     el.carArt.classList.remove('fallback'); el.carArt.appendChild(im);
     if (!el.cars.children.length) renderCars(); else markCurrent();
