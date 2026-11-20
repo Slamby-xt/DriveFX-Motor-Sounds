@@ -42,6 +42,9 @@ Atomicity: counters use an `INCR` script; trial usage uses a "keep the maximum" 
 * Backup/export: Upstash console > database > Backup (daily backups are a paid feature); free option: `GET /list` as admin (copy the JSON), or the Upstash "Export" in the data browser. Webhook data is also re-creatable from Stripe.
 * Free-tier limits (check Upstash for the current numbers): a monthly command budget, a size cap and one free database; DriveFX uses a handful of commands per visit/payment. Upstash e-mails before limits are hit; upgrading is a deliberate click, nothing is upgraded automatically.
 
+## Admin password
+Use a long random `ADMIN_TOKEN` (32+ characters recommended; 14 is the enforced minimum). Wrong logins are limited to 8 per network per 15 minutes; after 50 wrong logins from anywhere each further failure is slowed (up to 3 s). A correct password is never locked or delayed by other people's failures.
+
 ## Stripe
 * Webhook URL: `https://drivefx.pro/stripe-webhook` (no redirect; apex is the canonical host). Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`, `charge.refunded`, `charge.dispute.created`.
 * The signing secret of the deployed endpoint goes in `STRIPE_WEBHOOK_SECRET` (never the `stripe listen` one).

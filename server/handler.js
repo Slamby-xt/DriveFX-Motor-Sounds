@@ -85,7 +85,11 @@ async function isAdmin(c) {
   const n = await c.store.incr(rk, 900);                // counts every attempt first, so parallel guesses cannot slip past the limit
   if (n > 8) return 'locked';
   const ok = c.env.ADMIN_TOKEN && c.env.ADMIN_TOKEN.length >= 14 && (await same(c.req.headers.get('X-Admin-Token') || '', c.env.ADMIN_TOKEN));
-  if (!ok) return false;
+  if (!ok) { // wrong password: count it globally and, once many fail anywhere, make each further failure slow (correct passwords are never delayed or locked out)
+    const g = await c.store.incr('rl:admin:global', 900);
+    if (g > 50 && !c.env.NO_ADMIN_DELAY) await new Promise(r => setTimeout(r, Math.min(3000, (g - 50) * 50)));
+    return false;
+  }
   await c.store.del(rk);
   return true;
 }
