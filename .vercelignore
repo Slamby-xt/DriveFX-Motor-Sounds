@@ -1,0 +1,14 @@
+_ad
+_candidates
+_incoming
+_processed
+brand/old
+brand/drivefx-*
+worker
+tools/private-key.json
+tools/issued.json
+tools/admin-token.txt
+.env*
+!.env.example
+.claude
+public
