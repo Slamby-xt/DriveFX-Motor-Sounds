@@ -277,3 +277,14 @@ test('portal returns the Stripe login page, rejects foreign origins', async () =
   assert.equal((await a.j(await a.call('POST', '/portal', { origin: 'https://drivefx.pro' }))).url, 'https://billing.stripe.test/login');
   assert.equal((await a.call('POST', '/portal', { origin: 'https://evil.example' })).status, 403);
 });
+
+test('admin limiter: per network, global failure cap, short token refused', async () => {
+  const a = app();
+  for (let i = 0; i < 8; i++) await a.call('GET', '/list', { headers: { 'X-Admin-Token': 'x' }, ip: '203.0.113.10' });
+  assert.equal((await a.call('GET', '/list', { headers: { 'X-Admin-Token': 'x' }, ip: '203.0.113.99' })).status, 429, 'same /24 shares the budget');
+  const g = app();
+  for (let i = 0; i < 100; i++) await g.call('GET', '/list', { headers: { 'X-Admin-Token': 'x' }, ip: `10.${i % 250}.${i}.1` });
+  assert.equal((await g.call('GET', '/list', { headers: { 'X-Admin-Token': g.env.ADMIN_TOKEN }, ip: '172.16.5.5' })).status, 429, 'global cap');
+  const s = app({ env: { ADMIN_TOKEN: 'short' } });
+  assert.equal((await s.call('GET', '/list', { headers: { 'X-Admin-Token': 'short' } })).status, 401);
+});

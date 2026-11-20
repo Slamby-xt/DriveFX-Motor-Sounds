@@ -80,12 +80,14 @@ async function withLock(c, fn) {
   try { return await fn(); } finally { await c.store.unlock('license', token).catch(() => {}); }
 }
 
+const ADMIN_GLOBAL_FAILS = 100; // failed admin logins per 15 min from anywhere before admin auth pauses for everyone (caps distributed guessing; a long ADMIN_TOKEN is still required)
 async function isAdmin(c) {
-  const rk = 'rl:admin:' + clientIp(c.req);
-  const n = await c.store.incr(rk, 900);          // counts every attempt first, so parallel guesses cannot slip past the limit
+  const rk = 'rl:admin:' + networkOf(clientIp(c.req)); // per network (IPv4 /24, IPv6 /48), so rotating addresses inside a range does not help
+  const n = await c.store.incr(rk, 900);                // counts every attempt first, so parallel guesses cannot slip past the limit
   if (n > 8) return 'locked';
-  const ok = c.env.ADMIN_TOKEN && (await same(c.req.headers.get('X-Admin-Token') || '', c.env.ADMIN_TOKEN));
-  if (!ok) return false;
+  if ((+(await c.store.get('rl:admin:global')) || 0) >= ADMIN_GLOBAL_FAILS) return 'locked';
+  const ok = c.env.ADMIN_TOKEN && c.env.ADMIN_TOKEN.length >= 14 && (await same(c.req.headers.get('X-Admin-Token') || '', c.env.ADMIN_TOKEN));
+  if (!ok) { await c.store.incr('rl:admin:global', 900); return false; }
   await c.store.del(rk);
   return true;
 }
