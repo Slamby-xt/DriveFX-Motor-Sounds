@@ -54,7 +54,7 @@ td button{padding:6px 10px;border-radius:8px;border:1px solid var(--line);backgr
 </div></div>
 <script>
 (() => {
-const API = 'https://drivefx-licenses.xtdanik.workers.dev', IDLE = 10 * 60 * 1000;
+const API = location.origin, IDLE = 10 * 60 * 1000;
 const $ = s => document.querySelector(s);
 let token = null, idleT = null, items = [];
 

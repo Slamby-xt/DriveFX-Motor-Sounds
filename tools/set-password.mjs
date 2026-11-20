@@ -1,18 +1,14 @@
-// Lets YOU choose the admin panel password (stored as a secret on your Cloudflare Worker).
-//   double-click tools/set-password.bat
-// Wrangler (Cloudflare's tool) asks for the new value itself, in this window, with the text hidden.
+// Lets YOU choose the admin panel password (stored as the server-only Vercel variable ADMIN_TOKEN).
+//   node tools/set-password.mjs            (production)       node tools/set-password.mjs preview
+// The Vercel CLI asks for the value itself, in this window, with the text hidden. Nothing is written to a file.
 import { spawnSync } from 'node:child_process';
-import { unlinkSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-console.log('\nDriveFX admin password\n----------------------');
-console.log('Wrangler will now ask:  "Enter a secret value:"');
-console.log('Type your NEW admin password there (14+ characters, the text stays hidden) and press Enter.\n');
-
-const r = spawnSync('npx --yes wrangler@4 secret put ADMIN_TOKEN', { cwd: join(root, 'worker'), stdio: 'inherit', shell: true });
-if (r.status !== 0) { console.log('\nFailed. Tell Claude what is written above (or simply keep using the password from tools\\admin-token.txt).'); process.exit(1); }
-const old = join(root, 'tools', 'admin-token.txt');
-if (existsSync(old)) unlinkSync(old);
-console.log('\nDone. Your new password works now. The old generated one (admin-token.txt) was deleted.');
+const env = process.argv[2] === 'preview' ? 'preview' : 'production';
+console.log(`\nDriveFX admin password (${env})\n---------------------------------`);
+console.log('The Vercel CLI will ask for the value. Type your NEW admin password (14+ characters, hidden) and press Enter.\n');
+const r = spawnSync(`npx --yes vercel env add ADMIN_TOKEN ${env} --force`, { cwd: root, stdio: 'inherit', shell: true });
+if (r.status !== 0) { console.log('\nFailed. Make sure you ran "npx vercel login" and "npx vercel link" first.'); process.exit(1); }
+console.log('\nDone. Redeploy (npx vercel deploy --prod) so the new password is picked up.');

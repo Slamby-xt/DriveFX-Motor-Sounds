@@ -9,7 +9,7 @@
   'use strict';
   // ======== SETTINGS ========
   const TRIAL_SECONDS = 5 * 60;                 // free engine time per device (keep equal to TRIAL_SECONDS in worker/index.js)
-  const API = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? 'http://127.0.0.1:8787' : 'https://drivefx-licenses.xtdanik.workers.dev'; // local testing never touches the live server
+  const API = location.port === '5173' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? 'http://127.0.0.1:3000' : location.origin; // same origin as the site (Vercel serves both); a plain local static server uses `vercel dev` on :3000, never the live server
   const OFFLINE_GRACE_DAYS = 7;                 // keep a known subscription working this long if the server can't be reached
   const SYNC_EVERY = 15;                        // seconds of engine time between trial syncs with the server
   const PLANS = [

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "node tools/build-public.mjs",
+  "outputDirectory": "public",
+  "cleanUrls": false,
+  "trailingSlash": false,
+  "redirects": [
+    { "source": "/(.*)", "has": [{ "type": "host", "value": "www.drivefx.pro" }], "destination": "https://drivefx.pro/$1", "permanent": true }
+  ],
+  "rewrites": [
+    { "source": "/:r(status|prices|go|thanks|portal|trial|grant|revoke|list|find|relink|stripe-webhook)", "destination": "/api?__r=:r" },
+    { "source": "/admin", "destination": "/admin/index.html" }
+  ],
+  "headers": [
+    { "source": "/(.*)", "headers": [
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+      { "key": "Strict-Transport-Security", "value": "max-age=31536000" } ] },
+    { "source": "/admin(.*)", "headers": [ { "key": "X-Robots-Tag", "value": "noindex" }, { "key": "Cache-Control", "value": "no-store" } ] }
+  ]
+}

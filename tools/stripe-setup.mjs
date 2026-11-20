@@ -9,7 +9,7 @@ import readline from 'node:readline/promises';
 
 const live = process.argv.includes('--live');
 const wi = process.argv.indexOf('--webhook'), hook = wi > 0 ? process.argv[wi + 1] : null;
-const API_VERSION = '2026-02-25.clover'; // keep equal to STRIPE_VERSION in worker/index.js
+const API_VERSION = '2026-02-25.clover'; // keep equal to STRIPE_VERSION in server/handler.js
 
 // plan: [name, description, cents (same number in every currency), recurring interval or null]
 const PLANS = {
@@ -17,7 +17,7 @@ const PLANS = {
   yearly:   ['DriveFX Pro Yearly',   'Every car, no time limit. Renews yearly until cancelled. Priced in USD, EUR and GBP.', 2999, 'year'],
   lifetime: ['DriveFX Pro Lifetime', 'Every car, no time limit. One payment, no renewals. Priced in USD, EUR and GBP.', 4999, null],
 };
-const TAX_BEHAVIOR = 'inclusive'; // the number shown is the number paid (turn Stripe Tax on in the worker with TAX=1 once registered)
+const TAX_BEHAVIOR = 'inclusive'; // the number shown is the number paid (turn Stripe Tax on with the TAX=1 environment variable once registered)
 
 const stripe = (...a) => {
   let out;
@@ -78,7 +78,7 @@ if (hook) {
   if (existing) console.log(`webhook ${hook}: exists (${existing.id})`);
   else {
     const r = stripe('webhook_endpoints', 'create', ...D({ url: hook, api_version: API_VERSION, description: 'DriveFX license server', ...Object.fromEntries(events.map((e, i) => [`enabled_events[${i}]`, e])) }));
-    console.log(`webhook ${hook}: created (${r.id})\nSigning secret (shown once, store it with: wrangler secret put STRIPE_WEBHOOK_SECRET):\n${r.secret}`);
+    console.log(`webhook ${hook}: created (${r.id})\nSigning secret (shown once, add it in Vercel as STRIPE_WEBHOOK_SECRET (Production for live, Preview for sandbox)):\n${r.secret}`);
   }
 }
 console.log('Done.');

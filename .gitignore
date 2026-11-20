@@ -9,3 +9,15 @@ _candidates/
 _processed/
 _incoming/
 worker/.dev.vars
+
+# Vercel / local env
+.vercel/
+.env
+.env.*
+!.env.example
+public/
+node_modules/
+
+.vercel
+.env*
+!.env.example
