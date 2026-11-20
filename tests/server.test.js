@@ -282,9 +282,9 @@ test('admin limiter: per network, no global lockout, short token refused', async
   const a = app();
   for (let i = 0; i < 8; i++) await a.call('GET', '/list', { headers: { 'X-Admin-Token': 'x' }, ip: '203.0.113.10' });
   assert.equal((await a.call('GET', '/list', { headers: { 'X-Admin-Token': 'x' }, ip: '203.0.113.99' })).status, 429, 'same /24 shares the budget');
-  const g = app({ env: { NO_ADMIN_DELAY: '1' } });
+  const g = app();
   for (let i = 0; i < 120; i++) await g.call('GET', '/list', { headers: { 'X-Admin-Token': 'x' }, ip: `10.${i % 250}.${i}.1` });
-  assert.equal((await g.call('GET', '/list', { headers: { 'X-Admin-Token': g.env.ADMIN_TOKEN }, ip: '172.16.5.5' })).status, 200, 'anonymous failures elsewhere never lock out or delay the real admin');
+  assert.equal((await g.call('GET', '/list', { headers: { 'X-Admin-Token': g.env.ADMIN_TOKEN }, ip: '172.16.5.5' })).status, 200, 'anonymous failures elsewhere never lock out the real admin');
   const s = app({ env: { ADMIN_TOKEN: 'short' } });
   assert.equal((await s.call('GET', '/list', { headers: { 'X-Admin-Token': 'short' } })).status, 401);
 });
