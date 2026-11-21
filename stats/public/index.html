@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>DriveFX Stats</title>
+<title>DriveFX Statistics</title>
 <style>
 :root { --bg:#04050a; --card:#0a0e1a; --line:#1a2440; --txt:#e8f1ff; --mute:#7f90ad; --cy:#00e5ff; --or:#ff8a3d; --err:#ff5d73; --ok:#3ddc97; color-scheme: dark; }
 * { box-sizing: border-box; }
@@ -37,7 +37,7 @@ svg { width:100%; height:auto; display:block; } .axis { fill:var(--mute); font-s
 </head>
 <body>
 <main>
-  <h1>DRIVE<b>FX</b> · STATS</h1>
+  <h1>DRIVE<b>FX</b> · STATISTICS</h1>
   <p class="sub" id="sub">Locked.</p>
 
   <section id="gate" class="card">
@@ -76,6 +76,7 @@ svg { width:100%; height:auto; display:block; } .axis { fill:var(--mute); font-s
 <script>
 (() => {
 const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const BASE = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/'; // works at / and at /statistics
 const IDLE = 15 * 60 * 1000; let token = null, days = 30, idleT = null, refT = null;
 const fmt = n => Number(n).toLocaleString('en-US');
 const CC = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -121,13 +122,13 @@ function show(d) {
   list('#countries', d.countries, country); list('#devices', d.devices); list('#browsers', d.browsers); list('#os', d.os); list('#events', d.events);
   $('#upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
 }
-async function load() { show(await api('/api/stats?days=' + days)); }
+async function load() { show(await api(BASE + 'api/stats?days=' + days)); }
 function bump() { clearTimeout(idleT); idleT = setTimeout(lock, IDLE); }
 function lock() { token = null; clearInterval(refT); $('#app').classList.add('hide'); $('#gate').classList.remove('hide'); $('#sub').textContent = 'Locked.'; $('#gmsg').textContent = ''; $('#pw').focus(); }
 async function unlock() {
   const pw = $('#pw').value.trim(); if (!pw) return; token = pw; $('#gmsg').style.color = 'var(--mute)'; $('#gmsg').textContent = 'Checking…';
   try { await load(); $('#pw').value = ''; $('#gate').classList.add('hide'); $('#app').classList.remove('hide'); $('#sub').textContent = 'Unlocked. Locks itself after 15 minutes without activity.'; bump(); refT = setInterval(() => load().catch(() => {}), 30000); }
-  catch (e) { token = null; $('#gmsg').style.color = 'var(--err)'; $('#gmsg').textContent = [400, 401, 429, 503].includes(e.status) ? (e.status === 503 ? 'The stats site is not configured yet.' : e.message) : 'Cannot reach the stats server.'; }
+  catch (e) { token = null; $('#gmsg').style.color = 'var(--err)'; $('#gmsg').textContent = [400, 401, 429, 503].includes(e.status) ? (e.status === 503 ? 'The statistics site is not configured yet.' : e.message) : 'Cannot reach the statistics server.'; }
 }
 $('#go').onclick = unlock; $('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); }); $('#lock').onclick = lock;
 document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { days = +b.dataset.d; document.querySelectorAll('[data-d]').forEach(x => x.classList.toggle('on', x === b)); load().catch(e => e.status === 401 && lock()); bump(); });

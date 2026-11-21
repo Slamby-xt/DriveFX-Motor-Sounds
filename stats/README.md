@@ -1,4 +1,4 @@
-# DriveFX Stats
+# DriveFX Statistics
 
 Separate, password-protected visitor analytics for drivefx.pro. Own Vercel project (`slamby/drivefx-stats`), live at https://drivefx-stats.vercel.app.
 

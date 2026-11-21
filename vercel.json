@@ -13,6 +13,8 @@
   ],
   "crons": [{ "path": "/internal/cleanup", "schedule": "15 3 * * *" }],
   "rewrites": [
+    { "source": "/statistics", "destination": "https://drivefx-stats.vercel.app/" },
+    { "source": "/statistics/:path*", "destination": "https://drivefx-stats.vercel.app/:path*" },
     { "source": "/:r(status|prices|go|thanks|portal|trial|grant|revoke|list|find|relink|stripe-webhook)", "destination": "/api?__r=:r" },
     { "source": "/internal/cleanup", "destination": "/api?__r=cleanup" },
     { "source": "/admin", "destination": "/admin/index.html" }
@@ -22,6 +24,7 @@
       { "key": "X-Content-Type-Options", "value": "nosniff" },
       { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
       { "key": "Strict-Transport-Security", "value": "max-age=31536000" } ] },
-    { "source": "/admin(.*)", "headers": [ { "key": "X-Robots-Tag", "value": "noindex" }, { "key": "Cache-Control", "value": "no-store" } ] }
+    { "source": "/admin(.*)", "headers": [ { "key": "X-Robots-Tag", "value": "noindex" }, { "key": "Cache-Control", "value": "no-store" } ] },
+    { "source": "/statistics(.*)", "headers": [ { "key": "X-Robots-Tag", "value": "noindex, nofollow" } ] }
   ]
 }
