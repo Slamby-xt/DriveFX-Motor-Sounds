@@ -1,16 +1,16 @@
 # DriveFX release runbook
 
-Vercel serves the static cockpit and the same-origin license API. Supabase Postgres stores licenses and trial usage. Stripe Managed Payments handles checkout through Link. The production domain remains `https://drivefx.pro` and `www.drivefx.pro` redirects with the original path.
+Vercel serves the static cockpit and the same-origin license API. Neon Postgres stores licenses and trial usage. Stripe Managed Payments handles checkout through Link. The production domain remains `https://drivefx.pro` and `www.drivefx.pro` redirects with the original path.
 
 ## Prepare the databases
 
-1. Create two dedicated Supabase projects, one for production and one for staging and development. Select the regions and confirm ownership, backup options, network access and costs with the owner. There is no customer data to import from Upstash.
-2. In each project, disable the Data API, leave `drivefx` out of the exposed schemas and enforce SSL. In **Connect**, get the direct or session-mode owner connection details and the shared pooler's transaction endpoint. Use the owner credentials only to apply migrations and administer the schema.
-3. Apply [the versioned migration](../supabase/migrations/202611210001_drivefx.sql) once per project. Record the migration version and target project in the release record. The migration is for these dedicated projects. It revokes `PUBLIC` access to the `public` schema, which can affect other applications sharing the database. It also explicitly revokes DriveFX access from the Supabase Data API roles. Use `psql` with TLS server verification and enter the owner password when prompted:
+1. Create two separate Neon Free projects in the COHEX Vercel Marketplace integration, one for production and one for staging and development. Choose the same region for both and keep Neon Auth, Realtime, and the Data API disabled. The existing London projects are `drivefx-production` and `drivefx-staging`. There is no customer data to import.
+2. Keep the resource's owner connection out of Vercel Preview and Production. In Neon, get the direct connection details as the database owner. If using the Marketplace CLI to retrieve the connection details, temporarily connect one resource to Development only with a dedicated prefix, pull the values into a protected file outside the repo, and disconnect the resource before repeating for the other project. Keep owner credentials out of source, commands printed to logs, and the deployed app.
+3. Apply [the versioned migration](../db/migrations/202611210001_drivefx.sql) once per project and record the migration version and target. Use a direct, certificate-verified connection. The migration assumes a dedicated database and revokes `PUBLIC` access to the `public` schema. Use `psql` with verified TLS and enter the owner password when prompted:
 
    ```sh
-   psql 'host=<owner-host> port=<owner-port> dbname=postgres user=<owner-user> sslmode=verify-full sslrootcert=<ca-file>' \
-     -W -v ON_ERROR_STOP=1 -f supabase/migrations/202611210001_drivefx.sql
+   psql 'host=<direct-neon-host> port=5432 dbname=neondb user=<owner> sslmode=verify-full sslrootcert=<ca-file>' \
+     -W -v ON_ERROR_STOP=1 -f db/migrations/202611210001_drivefx.sql
    ```
 
 4. Open an interactive owner `psql` connection with the same parameters. Set a different strong role password on each database using `\password drivefx_app`. On the production database only, run:
@@ -19,8 +19,8 @@ Vercel serves the static cockpit and the same-origin license API. Supabase Postg
    UPDATE drivefx.environment SET name = 'prod';
    ```
 
-5. For each project, schedule a daily SQL job through [Supabase Cron](https://supabase.com/docs/guides/cron). Run `DELETE FROM drivefx.transient WHERE expires_at <= now();` as the owner. Verify a test expired row is removed and the job succeeds. Application reads and atomic writes already honor each row's expiry. Trial entries expire after 400 days without increased usage, daily new-trial counters after two days, admin and checkout rate counters after 15 minutes and one hour, event markers after seven days, webhook leases after 90 seconds, and Checkout attempts after 45 minutes. Licenses, exact payment maps, reversals, and pending billing jobs are durable.
-6. Test the transaction pooler with the runtime username `drivefx_app.<project-ref>`, port `6543` and verified TLS. Confirm `SELECT current_user, name FROM drivefx.environment;` returns `drivefx_app` and the expected marker. Verify that reading/writing DriveFX's records works in a rollback-only transaction, that access to other application schemas and writes to `drivefx.environment` are denied, and that `anon`, `authenticated` and `service_role` have no DriveFX schema and table permissions through the Data API. Review inherited grants on any other non-system schemas or objects in the dedicated project. Supabase documents the [connection and certificate settings](https://supabase.com/docs/guides/database/connecting-to-postgres).
+5. Test the [Neon transaction pooler](https://neon.com/docs/connect/connection-pooling) with the runtime username `drivefx_app`, default Postgres port `5432`, and verified TLS. Confirm `SELECT current_user, name FROM drivefx.environment;` returns `drivefx_app` and the intended marker. Verify that reads and writes in a rollback-only transaction succeed, writes to `drivefx.environment` are denied, and the runtime role cannot access another application's schema or inherit Neon administrative privileges.
+6. Vercel Cron calls `/internal/cleanup` daily around 03:15 UTC on the production deployment and sends that environment's `CRON_SECRET` as a bearer token. Exercise the same endpoint manually on Preview using the Preview secret because Vercel schedules jobs for production deployments. Verify a test expired row is removed, a fresh row survives, and a request without the token returns 401. The job removes expired transient records only. Trial entries expire after 400 days without increased usage, daily trial counters after two days, admin and checkout rate counters after 15 minutes and one hour, event markers after seven days, webhook leases after 90 seconds, and checkout attempts after 45 minutes. Licenses, purchase mappings, reversals, and billing jobs remain durable. [Vercel Cron guide](https://vercel.com/docs/cron-jobs/manage-cron-jobs)
 
 ## Configure the COHEX Vercel project
 
@@ -30,7 +30,8 @@ Run `npx vercel link --scope <cohex-team-slug> --project <drivefx-project>` afte
 | --- | --- | --- |
 | `DATA_PREFIX` | `sandbox` | `prod` |
 | `DRIVEFX_DATABASE_URL` | Staging transaction pooler credential | Production transaction pooler credential |
-| `DRIVEFX_DATABASE_CA` | Trusted CA PEM when required | Trusted CA PEM when required |
+| `DRIVEFX_DATABASE_CA` | Optional trusted CA PEM | Optional trusted CA PEM |
+| `CRON_SECRET` | A random secret of at least 32 characters for manual cleanup testing | A different random secret of at least 32 characters for Vercel Cron |
 | `ADMIN_TOKEN` | Random staging value, 32+ printable ASCII characters without spaces | Different random value, 32+ printable ASCII characters without spaces |
 | `TRIAL_PEPPER` | Stable random staging value, 32+ characters | Different stable random value, 32+ characters |
 | `STRIPE_KEY` | Dedicated DriveFX sandbox restricted key | Dedicated DriveFX live restricted key |
@@ -40,7 +41,7 @@ Run `npx vercel link --scope <cohex-team-slug> --project <drivefx-project>` afte
 | `CHECKOUT_ENABLED` | `1` for sandbox checkout | Keep `0` for the initial production deployment |
 | `MANAGED_PAYMENTS_COUNTRY_GATE_VERIFIED` | Unset | Keep `0` until the separately approved sales launch |
 
-Use `postgresql://drivefx_app.<project-ref>:<percent-encoded-password>@<shared-pooler-host>:6543/postgres` without query parameters. The app uses parameterized queries without named prepared statements, verifies TLS, and compares the actual database's role and marker to its expected environment. If Node does not trust the pooler's certificate chain, use the CA PEM for that project from the Supabase Dashboard and paste the complete multiline certificate into `DRIVEFX_DATABASE_CA`. Verify the hostname against the Supabase Connect dialog. A loopback connection is available for local tests or development. Keep database owner credentials, live keys and personal data out of code, logs and shared evidence. Rotating `TRIAL_PEPPER` resets existing trial recognition and network counters. Admin and checkout rate limits group Vercel-provided IPv4 addresses by /24 and IPv6 by /48. Requests without a valid Vercel IP share a fallback budget. Any client-provided forwarding headers have no effect on that budget.
+Use `postgresql://drivefx_app:<percent-encoded-password>@<neon-pooled-host>/neondb` without query parameters. The provider hostname starts with `ep-`, ends in `.neon.tech`, and has `-pooler` at the end of its first segment. The app uses parameterized queries without named prepared statements, verifies TLS, and compares the actual database's role and marker to its expected environment. Leave `DRIVEFX_DATABASE_CA` unset for Neon so Node uses its trusted roots. A custom CA PEM replaces those roots. Verify the hostname against the Neon Connect dialog. A loopback connection is available for local tests or development. Keep database owner credentials, live keys and personal data out of code, logs and shared evidence. Rotating `TRIAL_PEPPER` resets existing trial recognition and network counters. Admin and checkout rate limits group Vercel-provided IPv4 addresses by /24 and IPv6 by /48. Requests without a valid Vercel IP share a fallback budget. Any client-provided forwarding headers have no effect on that budget.
 
 For the runtime restricted Stripe key, configure Checkout Sessions and Subscriptions read/write and Customers, Payment Intents, Charges, Prices, Products, Invoices/Invoice Payments and Billing Portal configurations read as applicable. Verify the names and effective permissions in the selected account. Use an account operator's Stripe CLI profile for sandbox provisioning. Keep those privileges separate from the app key.
 

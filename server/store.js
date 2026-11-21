@@ -45,6 +45,11 @@ function queries(db) {
       await db.query(`DELETE FROM ${tableOf(key)} WHERE key = $1`, [key]);
     },
 
+    async purgeExpired() {
+      const result = await db.query('DELETE FROM drivefx.transient WHERE expires_at <= statement_timestamp()');
+      return result.rowCount;
+    },
+
     async release(key, value) {
       await db.query('DELETE FROM drivefx.transient WHERE key = $1 AND value = $2', [key, JSON.stringify(value)]);
     },
@@ -157,16 +162,19 @@ export async function getStore(env = process.env) {
     cached = (async () => {
       const url = new URL(env.DRIVEFX_DATABASE_URL);
       const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-      if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.password || url.search) throw new Error('invalid database URL');
+      if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.password || url.search || url.hash) throw new Error('invalid database URL');
       if (env.VERCEL_ENV && env.VERCEL_ENV !== 'development' && local) throw new Error('deployed database must use TLS');
       if (purpose === 'prod' && local) throw new Error('production database must use TLS');
-      if (!local && (url.port !== '6543' || !/^drivefx_app\.[a-z0-9]+$/.test(url.username))) throw new Error('use the DriveFX role on the transaction pooler');
+      const neonPooler = /^ep-[a-z0-9-]+-pooler(?:\.[a-z0-9-]+)+\.neon\.tech$/.test(url.hostname);
+      if (!local && (!neonPooler || (url.port && url.port !== '5432') || url.username !== 'drivefx_app')) {
+        throw new Error('use the DriveFX role on the Neon transaction pooler');
+      }
       const pool = new Pool({
         connectionString: url.toString(),
         ssl: local ? false : { rejectUnauthorized: true, ...(env.DRIVEFX_DATABASE_CA ? { ca: env.DRIVEFX_DATABASE_CA } : {}) },
         max: 3,
         idleTimeoutMillis: 5000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
         query_timeout: 8000,
         allowExitOnIdle: true,
       });

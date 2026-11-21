@@ -5,11 +5,26 @@ import test from 'node:test';
 import { Pool } from 'pg';
 import { app, lifetimeEvent, testMetadata } from './helpers.js';
 import { getStore, postgresStore } from '../server/store.js';
+import { handle } from '../server/handler.js';
 
 const ownerUrl = process.env.DRIVEFX_TEST_DATABASE_URL;
-const migration = new URL('../supabase/migrations/202611210001_drivefx.sql', import.meta.url);
+const migration = new URL('../db/migrations/202611210001_drivefx.sql', import.meta.url);
 const oldId = 'DFX-TEST-0001';
 const newId = 'DFX-TEST-0002';
+
+test('remote database credentials must use a Neon pooler and the DriveFX role', async () => {
+  const endpoint = 'ep-example-pooler.eu-west-2.aws.neon.tech';
+  for (const connectionString of [
+    `postgresql://neondb_owner:password@${endpoint}/neondb`,
+    'postgresql://drivefx_app:password@ep-example.eu-west-2.aws.neon.tech/neondb',
+    `postgresql://drivefx_app:password@${endpoint}:6543/neondb`,
+    `postgresql://drivefx_app:password@${endpoint}.example.org/neondb`,
+    `postgresql://drivefx_app:password@${endpoint}/neondb?sslmode=disable`,
+  ]) {
+    await assert.rejects(getStore({ DATA_PREFIX: 'sandbox', VERCEL_ENV: 'preview', DRIVEFX_DATABASE_URL: connectionString }),
+      /Neon transaction pooler|invalid database URL/);
+  }
+});
 
 test('DriveFX migration and concurrent writes on real Postgres', { skip: !ownerUrl }, async t => {
   const url = new URL(ownerUrl);
@@ -65,6 +80,29 @@ test('DriveFX migration and concurrent writes on real Postgres', { skip: !ownerU
       DATA_PREFIX: 'sandbox', VERCEL_ENV: 'development',
       DRIVEFX_DATABASE_URL: ownerUrl,
     }), /role mismatch/);
+  });
+
+  await t.test('the cleanup route requires its dedicated secret and only deletes expired transient records', async () => {
+    const cronSecret = randomBytes(24).toString('hex');
+    const deps = { env: { DATA_PREFIX: 'sandbox', VERCEL_ENV: 'preview', CRON_SECRET: cronSecret }, getStore: async () => store };
+    const route = 'https://example.com/internal/cleanup?__r=cleanup';
+    await store.purgeExpired();
+    await store.set('rl:cron-expired', 1, { ex: 0 });
+    await store.set('rl:cron-fresh', 1, { ex: 3600 });
+    await store.set('loss:cron-preserved', { confirmed: true });
+    for (const wrong of [undefined, 'wrong-secret']) {
+      const opts = wrong ? { headers: { Authorization: `Bearer ${wrong}` } } : {};
+      assert.equal((await handle(new Request(route, opts), deps)).status, 401);
+    }
+    assert.equal((await handle(new Request(route, { method: 'POST' }), deps)).status, 405);
+    assert.equal((await owner.query("SELECT count(*) FROM drivefx.transient WHERE key = 'rl:cron-expired'")).rows[0].count, '1');
+    const response = await handle(new Request(route, { headers: { Authorization: `Bearer ${cronSecret}` } }), deps);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { deleted: 1 });
+    assert.equal(await store.get('rl:cron-fresh'), 1);
+    assert.deepEqual(await store.get('loss:cron-preserved'), { confirmed: true });
+    await store.del('rl:cron-fresh');
+    await store.del('loss:cron-preserved');
   });
 
   await t.test('atomic counters, retention, and maximum trial usage', async () => {
