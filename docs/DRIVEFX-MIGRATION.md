@@ -1,5 +1,7 @@
 # DriveFX Vercel, Neon, and Managed Payments migration
 
+> Historical cutover notes. The checklist and rollout assumptions reflect the initial migration. Follow the [operations runbook](VERCEL.md) for the live setup and ongoing releases.
+
 ## Objective and baseline
 
 Move DriveFX to the owner's COHEX Vercel team, store license and trial data in Neon Postgres, and use Stripe Managed Payments for paid checkout. Preserve the existing static cockpit, audio, GPS and simulated driving, garage, free trial and Pro UI, phone QR flow, device IDs, and admin panel. Keep the canonical URL at https://drivefx.pro and the existing path-preserving redirect from www.
