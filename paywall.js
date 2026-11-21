@@ -21,7 +21,6 @@
   const FALLBACK = { monthly: { usd: 299, eur: 299, gbp: 299 }, yearly: { usd: 2999, eur: 2999, gbp: 2999 }, lifetime: { usd: 4999, eur: 4999, gbp: 4999 } };
   const CURRENCIES = ['usd', 'eur', 'gbp'];
   // ==========================
-  const CFG = window.DFX_CONFIG || {};
 
   const K = { id: 'dfx_id', used: 'dfx_used', sub: 'dfx_sub', cur: 'dfx_cur' };
   const ls = {
@@ -145,13 +144,12 @@
         <p class="pw-fine">Enter the ID shown on the device you paid with.</p>
       </details>
       <div class="pw-msg" id="pwMsg" role="status"></div>
-      <p class="pw-fine" id="pwSupport" hidden></p>
+      <p class="pw-fine">Need help? <a href="contact.html" target="_blank" rel="noopener">Contact DriveFX</a></p>
       <p class="pw-fine"><a href="terms.html" target="_blank" rel="noopener">Terms, refunds &amp; privacy</a></p>
     </div>`;
   document.body.appendChild(modal);
   const $ = id => modal.querySelector('#' + id);
   $('pwId').textContent = deviceId;
-  if (CFG.support) { $('pwSupport').hidden = false; $('pwSupport').append('Payment problem? ', Object.assign(document.createElement('a'), { href: 'mailto:' + CFG.support, textContent: CFG.support })); }
 
   // plan buttons
   let plan = 'yearly';
@@ -256,7 +254,7 @@
       msg('');
       const w = window.open(j.url, '_blank');
       if (w) { try { w.opener = null; } catch {} } else location.href = j.url;
-    } catch { msg('Cannot open billing right now. Try again, or email ' + (CFG.support || 'support') + '.', 'err'); }
+    } catch { msg('Cannot open billing right now. Try again or use the Contact link below.', 'err'); }
     btn.disabled = false;
   }
   $('pwManage').onclick = () => openBilling($('pwManage'));
