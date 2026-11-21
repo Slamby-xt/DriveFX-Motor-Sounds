@@ -1,68 +1,178 @@
-// Redis (Upstash, via the Vercel Marketplace) wrapper. Every key is namespaced with DATA_PREFIX ("prod" | "sandbox").
-// Env (injected by the Vercel Upstash integration, server-only): KV_REST_API_URL + KV_REST_API_TOKEN  (or UPSTASH_REDIS_REST_URL/TOKEN)
-import { Redis } from '@upstash/redis';
+import { Pool } from 'pg';
 
-const PREFIXES = ['prod', 'sandbox'];
-
-// A live Stripe key may only touch "prod" data, a test key only "sandbox" data: a misconfigured environment fails closed instead of mixing them.
 export function checkIsolation(env) {
   const p = env.DATA_PREFIX;
-  if (!PREFIXES.includes(p)) throw new Error('DATA_PREFIX must be "prod" or "sandbox"');
+  if (!['prod', 'sandbox'].includes(p)) throw new Error('DATA_PREFIX must be "prod" or "sandbox"');
   const k = env.STRIPE_KEY || '';
-  if (/^(sk|rk)_live_/.test(k) && p !== 'prod') throw new Error('live Stripe key with non-prod data prefix');
-  if (/^(sk|rk)_test_/.test(k) && p !== 'sandbox') throw new Error('test Stripe key with prod data prefix');
-  if (env.VERCEL_ENV === 'production' && p !== 'prod') throw new Error('production deployment must use the prod prefix');
-  if (env.VERCEL_ENV && env.VERCEL_ENV !== 'production' && p === 'prod') throw new Error('preview/development deployment must not use the prod prefix');
+  if (k && !/^(sk|rk)_(live|test)_/.test(k)) throw new Error('invalid Stripe key mode');
+  if (/^(sk|rk)_live_/.test(k) && p !== 'prod') throw new Error('live Stripe key with non-prod database');
+  if (/^(sk|rk)_test_/.test(k) && p !== 'sandbox') throw new Error('test Stripe key with prod database');
+  if (env.VERCEL_ENV === 'production' && p !== 'prod') throw new Error('production deployment must use the prod database');
+  if (env.VERCEL_ENV && env.VERCEL_ENV !== 'production' && p === 'prod') throw new Error('preview/development deployment must not use the prod database');
   return p;
 }
 
-// Keep the maximum "used" seconds: creates the record or raises it, never lowers it. Atomic inside Redis.
-const PUT_MAX = `
-local cur = redis.call('GET', KEYS[1])
-if cur then
-  local ok, o = pcall(cjson.decode, cur)
-  if ok and type(o) == 'table' and tonumber(o.used) and tonumber(o.used) >= tonumber(ARGV[1]) then return 0 end
-end
-redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
-return 1`;
-const INCR_TTL = `
-local n = redis.call('INCR', KEYS[1])
-if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-return n`;
-const UNLOCK = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
+const transient = /^(tr|rl|ev|lease|checkout):/;
+const tableOf = key => transient.test(key) ? 'drivefx.transient' : 'drivefx.records';
 
-export function redisStore(env) {
-  const prefix = checkIsolation(env) + ':';
-  const url = env.KV_REST_API_URL || env.UPSTASH_REDIS_REST_URL, token = env.KV_REST_API_TOKEN || env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) throw new Error('Redis is not configured');
-  const r = new Redis({ url, token, automaticDeserialization: false });
-  const K = k => prefix + k;
+function queries(db) {
   return {
-    get: async k => { const v = await r.get(K(k)); return v == null ? null : String(v); },
-    async set(k, v, o = {}) {
-      const args = {}; if (o.ex) args.ex = o.ex; if (o.nx) args.nx = true;
-      const res = await r.set(K(k), v, args);
-      return res === 'OK';
+    async get(key) {
+      const table = tableOf(key);
+      const sql = `SELECT value FROM ${table} WHERE key = $1` +
+        (table === 'drivefx.transient' ? ' AND expires_at > statement_timestamp()' : '');
+      return (await db.query(sql, [key])).rows[0]?.value ?? null;
     },
-    del: async k => { await r.del(K(k)); },
-    incr: async (k, ttl) => Number(await r.eval(INCR_TTL, [K(k)], [String(ttl)])),
-    putMax: async (k, used, rec, ttl) => Number(await r.eval(PUT_MAX, [K(k)], [String(used), rec, String(ttl)])),
-    async mget(keys) { if (!keys.length) return []; return (await r.mget(...keys.map(K))).map(v => v == null ? null : (typeof v === 'string' ? v : JSON.stringify(v))); },
-    async scan(match) { // cursor SCAN, deduplicated; returns keys without the namespace prefix
-      const out = new Set(); let cursor = '0';
-      do {
-        const [next, keys] = await r.scan(cursor, { match: K(match) + '*', count: 200 });
-        keys.forEach(k => out.add(k.slice(prefix.length))); cursor = String(next);
-      } while (cursor !== '0');
-      return [...out];
+
+    async set(key, value, { ex, nx } = {}) {
+      const data = [key, JSON.stringify(value)];
+      if (transient.test(key)) {
+        const conflict = nx ? 'WHERE drivefx.transient.expires_at <= statement_timestamp()' : '';
+        const r = await db.query(`
+          INSERT INTO drivefx.transient (key, value, expires_at)
+          VALUES ($1, $2, statement_timestamp() + $3::integer * interval '1 second')
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at ${conflict}
+        `, [...data, ex]);
+        return r.rowCount === 1;
+      }
+      const conflict = nx ? 'NOTHING' : 'UPDATE SET value = EXCLUDED.value';
+      return (await db.query(`
+        INSERT INTO drivefx.records (key, value) VALUES ($1, $2) ON CONFLICT (key) DO ${conflict}
+      `, data)).rowCount === 1;
     },
-    async lock(name, ttl) { const t = crypto.randomUUID(); return (await r.set(K('lock:' + name), t, { nx: true, ex: ttl })) === 'OK' ? t : null; },
-    unlock: async (name, t) => { await r.eval(UNLOCK, [K('lock:' + name)], [t]); },
+
+    async del(key) {
+      await db.query(`DELETE FROM ${tableOf(key)} WHERE key = $1`, [key]);
+    },
+
+    async release(key, value) {
+      await db.query('DELETE FROM drivefx.transient WHERE key = $1 AND value = $2', [key, JSON.stringify(value)]);
+    },
+
+    async incr(key, ttl) {
+      const r = await db.query(`
+        INSERT INTO drivefx.transient AS t (key, value, expires_at)
+        VALUES ($1, '1', statement_timestamp() + $2::integer * interval '1 second')
+        ON CONFLICT (key) DO UPDATE SET
+          value = CASE WHEN t.expires_at <= statement_timestamp() THEN '1'::jsonb ELSE to_jsonb((t.value::bigint) + 1) END,
+          expires_at = CASE WHEN t.expires_at <= statement_timestamp() THEN EXCLUDED.expires_at ELSE t.expires_at END
+        RETURNING value
+      `, [key, ttl]);
+      return r.rows[0].value;
+    },
+
+    async putMax(key, used, rec, ttl) {
+      await db.query(`
+        INSERT INTO drivefx.transient AS t (key, value, expires_at)
+        VALUES ($1, $2, statement_timestamp() + $3::integer * interval '1 second')
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at
+        WHERE t.expires_at <= statement_timestamp() OR (t.value->>'used')::numeric < $4
+      `, [key, JSON.stringify(rec), ttl, used]);
+    },
+
+    async attachSession(key, token, session) {
+      await db.query(`
+        UPDATE drivefx.transient SET value = value || jsonb_build_object('session', $3::text)
+        WHERE key = $1 AND value->>'token' = $2 AND expires_at > statement_timestamp()
+      `, [key, token, session]);
+    },
+
+    async licenses() {
+      const r = await db.query("SELECT substr(key, 5) AS id, value FROM drivefx.records WHERE key LIKE 'lic:%'");
+      return r.rows.map(({ id, value }) => ({ id, ...value }));
+    },
+
+    async rememberCustomer(customer, device) {
+      await db.query('INSERT INTO drivefx.customers (customer, device) VALUES ($1, $2) ON CONFLICT DO NOTHING', [customer, device]);
+    },
+
+    async customerDevices(customer) {
+      const r = await db.query('SELECT device FROM drivefx.customers WHERE customer = $1 ORDER BY device', [customer]);
+      return r.rows.map(row => row.device);
+    },
+
+    async moveMappings(from, to) {
+      await db.query(`
+        UPDATE drivefx.records SET value = jsonb_set(value, '{device}', to_jsonb($2::text))
+        WHERE value ->> 'device' = $1 AND split_part(key, ':', 1) IN ('sub', 'pi')
+      `, [from, to]);
+      await db.query(`
+        INSERT INTO drivefx.customers (customer, device)
+        SELECT customer, $2 FROM drivefx.customers WHERE device = $1 ON CONFLICT DO NOTHING
+      `, [from, to]);
+      await db.query('DELETE FROM drivefx.customers WHERE device = $1', [from]);
+    },
+
+    async clearJob(key, value) {
+      await db.query('DELETE FROM drivefx.records WHERE key = $1 AND value = $2', [key, JSON.stringify(value)]);
+    },
   };
 }
 
-let cached = null;
+export function postgresStore(pool) {
+  return {
+    ...queries(pool),
+    async transaction(lock, fn) {
+      const conn = await pool.connect();
+      let discard;
+      try {
+        await conn.query('BEGIN');
+        await conn.query("SET LOCAL statement_timeout = '5s'");
+        await conn.query("SET LOCAL idle_in_transaction_session_timeout = '5s'");
+        // Transaction-scoped locks survive transaction pooling, and disappear on rollback.
+        // License writes are infrequent; one lock makes entitlement selection and relinks atomic.
+        const names = Array.isArray(lock) ? [...new Set(lock)].sort() : lock ? [lock] : [];
+        for (const name of names) {
+          await conn.query('SELECT pg_advisory_xact_lock(40913027, hashtext($1))', [name]);
+        }
+        const result = await fn(queries(conn));
+        await conn.query('COMMIT');
+        return result;
+      } catch (e) {
+        try { await conn.query('ROLLBACK'); } catch (error) { discard = error; }
+        throw e;
+      } finally {
+        conn.release(discard);
+      }
+    },
+  };
+}
+
+let cached;
 export async function getStore(env = process.env) {
-  if (!cached) cached = redisStore(env);
+  const purpose = checkIsolation(env);
+  if (!cached) {
+    cached = (async () => {
+      const url = new URL(env.DRIVEFX_DATABASE_URL);
+      const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+      if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.password || url.search) throw new Error('invalid database URL');
+      if (env.VERCEL_ENV && env.VERCEL_ENV !== 'development' && local) throw new Error('deployed database must use TLS');
+      if (purpose === 'prod' && local) throw new Error('production database must use TLS');
+      if (!local && (url.port !== '6543' || !/^drivefx_app\.[a-z0-9]+$/.test(url.username))) throw new Error('use the DriveFX role on the transaction pooler');
+      const pool = new Pool({
+        connectionString: url.toString(),
+        ssl: local ? false : { rejectUnauthorized: true, ...(env.DRIVEFX_DATABASE_CA ? { ca: env.DRIVEFX_DATABASE_CA } : {}) },
+        max: 3,
+        idleTimeoutMillis: 5000,
+        connectionTimeoutMillis: 5000,
+        query_timeout: 8000,
+        allowExitOnIdle: true,
+      });
+      pool.on('error', () => console.error('DriveFX database connection lost'));
+      try {
+        const r = await pool.query('SELECT current_user AS role, name FROM drivefx.environment');
+        if (r.rows.length !== 1 || r.rows[0].role !== 'drivefx_app' || r.rows[0].name !== purpose) {
+          throw new Error('database environment or role mismatch');
+        }
+        return postgresStore(pool);
+      } catch (err) {
+        await pool.end();
+        throw err;
+      }
+    })().catch(err => {
+      cached = null;
+      throw err;
+    });
+  }
   return cached;
 }

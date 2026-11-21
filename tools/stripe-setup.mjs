@@ -1,84 +1,146 @@
-// Creates (or checks) everything DriveFX needs in Stripe: 3 products with USD/EUR/GBP prices, the billing portal, the webhook.
-// Safe to run again: existing items are left alone (products have fixed ids, prices are found by lookup_key).
-//   node tools/stripe-setup.mjs                 sandbox / test mode (whatever `stripe login` selected)
-//   node tools/stripe-setup.mjs --live          LIVE account, asks for the word "live" first
-//   node tools/stripe-setup.mjs --webhook URL   also create the webhook endpoint (prints the signing secret once)
-// Needs the Stripe CLI, logged in to the account you want to change.
+// Sandbox provisioning and read-only catalogue verification for DriveFX.
 import { execFileSync } from 'node:child_process';
-import readline from 'node:readline/promises';
+import { createHash } from 'node:crypto';
+import { parseArgs } from 'node:util';
+import { PLANS, STRIPE_VERSION, TAX_CODE, stripeEvents, verifyPrice } from '../server/stripe.js';
 
-const live = process.argv.includes('--live');
-const wi = process.argv.indexOf('--webhook'), hook = wi > 0 ? process.argv[wi + 1] : null;
-const API_VERSION = '2026-02-25.clover'; // keep equal to STRIPE_VERSION in server/handler.js
-
-// plan: [name, description, cents (same number in every currency), recurring interval or null]
-const PLANS = {
-  monthly:  ['DriveFX Pro Monthly',  'Every car, no time limit. Renews monthly until cancelled. Priced in USD, EUR and GBP.', 299, 'month'],
-  yearly:   ['DriveFX Pro Yearly',   'Every car, no time limit. Renews yearly until cancelled. Priced in USD, EUR and GBP.', 2999, 'year'],
-  lifetime: ['DriveFX Pro Lifetime', 'Every car, no time limit. One payment, no renewals. Priced in USD, EUR and GBP.', 4999, null],
-};
-const TAX_BEHAVIOR = 'inclusive'; // the number shown is the number paid (turn Stripe Tax on with the TAX=1 environment variable once registered)
-
-const stripe = (...a) => {
-  let out;
-  try { out = execFileSync('stripe', [...a, ...(live ? ['--live'] : []), '--stripe-version', API_VERSION], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
-  catch (e) { throw new Error((e.stderr || e.message).toString().trim()); }
-  const j = JSON.parse(out.slice(out.indexOf('{'))); // the CLI exits 0 on API errors and prints { error: ... }
-  if (j.error) { const err = new Error(`${j.error.code || j.error.type}: ${j.error.message}`); err.notFound = j.error.code === 'resource_missing'; throw err; }
-  return j;
-};
-const D = o => Object.entries(o).flatMap(([k, v]) => ['-d', `${k}=${v}`]);
-
-const acct = stripe('get', '/v1/account');
-console.log(`Account: ${acct.settings?.dashboard?.display_name || acct.business_profile?.name || '(no name)'} ${acct.id} · ${live ? 'LIVE' : 'test/sandbox'}`);
-if (live) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const a = await rl.question('This creates real products in the LIVE account above. Type "live" to continue: ');
-  rl.close(); if (a.trim() !== 'live') { console.log('Cancelled.'); process.exit(1); }
+const { values: opts } = parseArgs({
+  options: {
+    account: { type: 'string' }, live: { type: 'boolean' }, check: { type: 'boolean' },
+    webhook: { type: 'string' }, portal: { type: 'boolean' },
+  },
+});
+const readOnly = opts.live || opts.check;
+if (!/^acct_[A-Za-z0-9]+$/.test(opts.account || '')) {
+  console.error('Pass --account with the dedicated DriveFX account or sandbox ID.');
+  process.exit(1);
+}
+if (opts.webhook) {
+  const url = new URL(opts.webhook);
+  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/stripe-webhook' || url.hash || url.search) {
+    throw new Error('Use an HTTPS /stripe-webhook URL without credentials, query parameters or fragments. Set up protected preview endpoints in the Dashboard.');
+  }
 }
 
-for (const [plan, [name, desc, cents, interval]] of Object.entries(PLANS)) {
-  const pid = `drivefx_pro_${plan}`, key = `drivefx_${plan}`;
-  try { stripe('products', 'retrieve', pid); console.log(`product ${pid}: exists`); }
-  catch (e) { if (!e.notFound) throw e; stripe('products', 'create', ...D({ id: pid, name, description: desc, 'metadata[app]': 'drivefx', 'metadata[plan]': plan })); console.log(`product ${pid}: created`); }
-  const have = stripe('prices', 'list', ...D({ 'lookup_keys[]': key, active: 'true' })).data;
-  if (have.length) { console.log(`price ${key}: exists (${have[0].id})`); continue; }
-  const p = { product: pid, currency: 'usd', unit_amount: cents, tax_behavior: TAX_BEHAVIOR, lookup_key: key, 'metadata[app]': 'drivefx',
-    'currency_options[eur][unit_amount]': cents, 'currency_options[eur][tax_behavior]': TAX_BEHAVIOR,
-    'currency_options[gbp][unit_amount]': cents, 'currency_options[gbp][tax_behavior]': TAX_BEHAVIOR };
-  if (interval) p['recurring[interval]'] = interval;
-  const r = stripe('prices', 'create', ...D(p));
-  console.log(`price ${key}: created (${r.id}) ${cents / 100} USD / EUR / GBP${interval ? ' per ' + interval : ' one-time'}`);
+function stripe(method, path, fields = {}, idempotency) {
+  if (readOnly && method !== 'get') throw new Error('Stripe writes are disabled in audit or live mode');
+  const args = Object.entries(fields).flatMap(([k, v]) => ['-d', `${k}=${v}`]);
+  if (idempotency) args.push('--idempotency', idempotency);
+  if (opts.live) args.push('--live');
+  let raw;
+  try {
+    raw = execFileSync('stripe', [method, '/v1/' + path, '--stripe-version', STRIPE_VERSION, ...args], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000,
+    });
+  } catch {
+    throw new Error(`Stripe CLI could not complete ${method} ${path}. Check the selected Stripe profile and credentials.`);
+  }
+  const response = JSON.parse(raw.slice(raw.indexOf('{')));
+  if (response.error) {
+    const e = new Error(`Stripe API rejected ${method} ${path} (${response.error.code || response.error.type}).`);
+    e.missing = response.error.code === 'resource_missing';
+    throw e;
+  }
+  return response;
 }
 
-// billing portal: cancel at period end, card update, invoices, and an email login page
-const cfgs = stripe('get', '/v1/billing_portal/configurations', ...D({ active: 'true', limit: 20 })).data;
-if (cfgs.some(c => c.metadata?.app === 'drivefx')) console.log('billing portal: exists');
-else {
-  const r = stripe('billing_portal', 'configurations', 'create', ...D({
+function retrieveProduct(id) {
+  try { return stripe('get', 'products/' + id); }
+  catch (e) { if (!e.missing) throw e; return null; }
+}
+
+function productFor(name, plan) {
+  const id = 'drivefx_pro_' + name;
+  const fixed = retrieveProduct(id);
+  const found = stripe('get', 'products/search', { query: `name:"${plan.name}" AND active:"true"`, limit: 100 });
+  const matches = new Map(found.data.map(p => [p.id, p]));
+  if (fixed) matches.set(fixed.id, fixed);
+  if (found.has_more || matches.size > 1) throw new Error(`Resolve duplicate products for ${plan.name} before provisioning`);
+  const existing = matches.values().next().value;
+  if (existing && (!existing.active || existing.name !== plan.name || (existing.tax_code && existing.tax_code !== TAX_CODE))) {
+    throw new Error(`Review the existing product and tax code for ${plan.name}`);
+  }
+  if (existing) {
+    if (existing.tax_code !== TAX_CODE) {
+      stripe('post', 'products/' + existing.id, { tax_code: TAX_CODE }, 'drivefx-tax-code-' + existing.id);
+    }
+    return existing.id;
+  }
+  return stripe('post', 'products', {
+    id, name: plan.name, tax_code: TAX_CODE, 'metadata[app]': 'drivefx', 'metadata[plan]': name,
+  }, 'drivefx-product-' + name).id;
+}
+
+function setUpPrice(name, plan) {
+  const found = stripe('get', 'prices', {
+    'lookup_keys[0]': plan.key, 'expand[0]': 'data.currency_options', 'expand[1]': 'data.product', limit: 10,
+  });
+  if (found.data.length) {
+    if (found.data.length !== 1 || !verifyPrice(found.data[0], plan)) throw new Error(`Review existing price ${plan.key}; it differs from the approved catalogue`);
+    console.log(`${plan.key}: verified`);
+    return;
+  }
+  if (readOnly) throw new Error(`Missing price ${plan.key}`);
+  const product = productFor(name, plan);
+  const fields = {
+    product, currency: 'usd', unit_amount: plan.amount, tax_behavior: 'inclusive', lookup_key: plan.key,
+    'currency_options[eur][unit_amount]': plan.amount, 'currency_options[eur][tax_behavior]': 'inclusive',
+    'currency_options[gbp][unit_amount]': plan.amount, 'currency_options[gbp][tax_behavior]': 'inclusive',
+  };
+  if (plan.interval) fields['recurring[interval]'] = plan.interval;
+  stripe('post', 'prices', fields, 'drivefx-price-' + plan.key);
+  console.log(`${plan.key}: created`);
+}
+
+function setUpPortal() {
+  const { data } = stripe('get', 'billing_portal/configurations', { active: true, limit: 100 });
+  const item = data.find(c => c.metadata?.app === 'drivefx');
+  if (item) {
+    if (!item.login_page?.enabled || !item.features?.invoice_history?.enabled
+        || !item.features?.payment_method_update?.enabled || !item.features?.subscription_cancel?.enabled
+        || item.features.subscription_cancel.mode !== 'at_period_end') {
+      throw new Error('Review the existing DriveFX portal in Stripe Dashboard');
+    }
+    console.log('DriveFX portal: verified');
+    return;
+  }
+  if (readOnly) throw new Error('No active DriveFX billing portal configuration');
+  stripe('post', 'billing_portal/configurations', {
     'metadata[app]': 'drivefx',
-    'business_profile[headline]': 'DriveFX Pro: manage your subscription',
+    'business_profile[headline]': 'Manage your DriveFX Pro subscription',
     'features[subscription_cancel][enabled]': 'true',
     'features[subscription_cancel][mode]': 'at_period_end',
-    'features[subscription_cancel][cancellation_reason][enabled]': 'true',
-    'features[subscription_cancel][cancellation_reason][options][0]': 'too_expensive',
-    'features[subscription_cancel][cancellation_reason][options][1]': 'missing_features',
-    'features[subscription_cancel][cancellation_reason][options][2]': 'unused',
-    'features[subscription_cancel][cancellation_reason][options][3]': 'other',
     'features[payment_method_update][enabled]': 'true',
     'features[invoice_history][enabled]': 'true',
     'login_page[enabled]': 'true',
-  }));
-  console.log(`billing portal: created (${r.id}) login page: ${r.login_page?.url || '-'}`);
+  }, 'drivefx-billing-portal-v1');
+  console.log('DriveFX portal: created');
 }
 
-if (hook) {
-  const events = ['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'invoice.paid', 'invoice.payment_failed', 'customer.subscription.updated', 'customer.subscription.deleted', 'charge.refunded', 'charge.dispute.created'];
-  const existing = stripe('webhook_endpoints', 'list', ...D({ limit: 50 })).data.find(w => w.url === hook);
-  if (existing) console.log(`webhook ${hook}: exists (${existing.id})`);
-  else {
-    const r = stripe('webhook_endpoints', 'create', ...D({ url: hook, api_version: API_VERSION, description: 'DriveFX license server', ...Object.fromEntries(events.map((e, i) => [`enabled_events[${i}]`, e])) }));
-    console.log(`webhook ${hook}: created (${r.id})\nSigning secret (shown once, add it in Vercel as STRIPE_WEBHOOK_SECRET (Production for live, Preview for sandbox)):\n${r.secret}`);
+function setUpWebhook(url) {
+  const { data } = stripe('get', 'webhook_endpoints', { limit: 100 });
+  const item = data.find(w => w.url === url);
+  if (item) {
+    if (item.api_version !== STRIPE_VERSION || item.status !== 'enabled'
+        || !stripeEvents.every(e => item.enabled_events.includes(e))) {
+      throw new Error('Review the existing webhook endpoint and event set in Stripe Dashboard');
+    }
+    console.log('DriveFX webhook: verified');
+    return;
   }
+  if (readOnly) throw new Error('No matching webhook endpoint');
+  const events = Object.fromEntries(stripeEvents.map((e, i) => [`enabled_events[${i}]`, e]));
+  const key = 'drivefx-webhook-' + createHash('sha256').update(url).digest('hex');
+  stripe('post', 'webhook_endpoints', { url, api_version: STRIPE_VERSION, description: 'DriveFX license server', ...events }, key);
+  console.log('DriveFX webhook: created. Copy the signing secret from Stripe Dashboard directly to the matching Vercel environment.');
 }
-console.log('Done.');
+
+try {
+  if (stripe('get', 'account').id !== opts.account) throw new Error('The selected Stripe account does not match --account');
+  for (const [name, plan] of Object.entries(PLANS)) setUpPrice(name, plan);
+  if (!readOnly || opts.portal) setUpPortal();
+  if (opts.webhook) setUpWebhook(opts.webhook);
+} catch (e) {
+  console.error(e.message);
+  process.exitCode = 1;
+}

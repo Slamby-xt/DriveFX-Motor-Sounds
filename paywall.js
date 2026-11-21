@@ -4,7 +4,7 @@
    The free minutes are also counted on the server, by device ID AND by a fingerprint of the device plus its network, so
    clearing cookies or opening a private window does not give a fresh trial.
    Payments: Stripe Checkout, created by the license server (GET /go). Prices come from Stripe (GET /prices) in USD, EUR or GBP.
-   After paying, the Stripe webhook marks the ID as Pro and this window unlocks by itself. Cancel / card / invoices: Stripe's billing portal (POST /portal). */
+   After paying, the Stripe webhook marks the ID as Pro and this window unlocks by itself. Cancel / card / invoices: Link or the Stripe billing portal (POST /portal). */
 (() => {
   'use strict';
   // ======== SETTINGS ========
@@ -244,7 +244,7 @@
     setTimeout(() => $('pwCopy').textContent = 'COPY', 1800);
   };
 
-  // Stripe's billing portal (cancel, change card, invoices). Stripe asks for the email used to pay and emails a sign-in link,
+  // Link or the Stripe billing portal handles subscription changes and invoices. Sign-in uses the purchase email,
   // so this works for everyone who paid, including after a subscription has lapsed, and the device ID alone never opens anyone's billing.
   async function openBilling(btn) {
     const msg = (t, cls) => { $('pwMsg').className = 'pw-msg ' + (cls || ''); $('pwMsg').textContent = t; };
