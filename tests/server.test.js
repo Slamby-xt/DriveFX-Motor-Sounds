@@ -86,7 +86,7 @@ test('checkout /go validates input, redirects to Stripe, uses own origin on prev
   }
   await a.call('GET', `/go?id=${ID}&plan=monthly&cur=jpy`);
   assert.equal(a.stripe.calls.filter(c => c.p === '/checkout/sessions').pop().body.currency, 'usd', 'unknown currency falls back');
-  const prod = app({ env: { VERCEL_ENV: 'production', DATA_PREFIX: 'prod', STRIPE_KEY: 'sk_live_x', MANAGED_PAYMENTS_COUNTRY_GATE_VERIFIED: '1' } });
+  const prod = app({ env: { VERCEL_ENV: 'production', DATA_PREFIX: 'prod', STRIPE_KEY: 'sk_live_x', MANAGED_PAYMENTS_COUNTRY_GATE_VERIFIED: '1', TERMS_CONSENT: '1' } });
   await prod.call('GET', `/go?id=${ID}&plan=yearly`);
   assert.equal(prod.stripe.calls.filter(c => c.p === '/checkout/sessions').pop().body.success_url, 'https://drivefx.pro/thanks?id=' + ID);
 });
@@ -299,7 +299,7 @@ test('admin limiter: per network, no global lockout, short token refused', async
   assert.equal((await s.call('GET', '/list', { headers: { 'X-Admin-Token': 'short' } })).status, 401);
 });
 
-test('checkout requires explicit enablement and production country verification', async () => {
+test('checkout requires explicit enablement, country verification and production terms consent', async () => {
   const request = '/go?id=' + ID + '&plan=monthly';
   const paused = app({ env: { CHECKOUT_ENABLED: undefined } });
   assert.equal((await paused.call('GET', request)).status, 503);
@@ -312,9 +312,12 @@ test('checkout requires explicit enablement and production country verification'
   assert.equal((await status(paused, ID2)).active, true);
   assert.ok(!paused.stripe.calls.some(x => x.p.startsWith('/checkout/sessions')));
 
-  const prod = app({ env: { VERCEL_ENV: 'production', DATA_PREFIX: 'prod', STRIPE_KEY: 'sk_live_x', CHECKOUT_ENABLED: '1' } });
-  assert.match(await (await prod.call('GET', request)).text(), /sales are paused/);
-  assert.equal(prod.stripe.calls.length, 0);
+  for (const enabledSetting of [{ TERMS_CONSENT: '1' }, { MANAGED_PAYMENTS_COUNTRY_GATE_VERIFIED: '1' }]) {
+    const prod = app({ env: { VERCEL_ENV: 'production', DATA_PREFIX: 'prod', STRIPE_KEY: 'sk_live_x', CHECKOUT_ENABLED: '1', ...enabledSetting } });
+    assert.match(await (await prod.call('GET', request)).text(), /sales are paused/);
+    assert.equal((await prod.call('GET', '/prices')).status, 503);
+    assert.equal(prod.stripe.calls.length, 0);
+  }
 });
 
 test('catalogue verifies all nine inclusive amounts and Checkout uses the Managed Payments fields', async () => {
@@ -336,7 +339,7 @@ test('catalogue verifies all nine inclusive amounts and Checkout uses the Manage
       assert.equal(body['metadata[device]'], ID);
       const nested = plan === 'lifetime' ? 'payment_intent_data' : 'subscription_data';
       assert.equal(body[`${nested}[metadata][integration]`], 'managed_v1');
-      assert.ok(!Object.keys(body).some(k => /^(automatic_tax|adaptive_pricing|invoice_creation|payment_method_types)/.test(k)));
+      assert.ok(!Object.keys(body).some(k => /^(automatic_tax|adaptive_pricing|invoice_creation|payment_method_types|custom_text)/.test(k)));
     }
   }
   const bad = app({ env: { STRIPE_KEY: 'sk_test_wrong_price' } });

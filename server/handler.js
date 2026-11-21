@@ -93,7 +93,9 @@ async function prices(c) {
 function checkoutEnabled(env) {
   if (env.CHECKOUT_ENABLED !== '1') return false;
   if (env.DATA_PREFIX !== 'prod') return true;
-  return env.VERCEL_ENV === 'production' && env.MANAGED_PAYMENTS_COUNTRY_GATE_VERIFIED === '1';
+  return env.VERCEL_ENV === 'production'
+    && env.MANAGED_PAYMENTS_COUNTRY_GATE_VERIFIED === '1'
+    && env.TERMS_CONSENT === '1';
 }
 
 const unavailable = () => page('DriveFX', '<h1>Payments are temporarily unavailable</h1><p>Please try again in a few minutes.</p>', 503);
@@ -218,15 +220,11 @@ async function go(c, url, now) {
       success_url: `${self}/thanks?id=${id}`,
       cancel_url: `${self}/thanks?id=${id}&c=1`,
       locale: 'auto',
-      custom_text: { submit: { message: sub
-        ? `Renews automatically every ${PLANS[plan].interval} until you cancel (DriveFX > your plan > Manage). Your DriveFX ID: ${id}`
-        : `One-time payment, no renewals. Your DriveFX ID: ${id}` } },
       ...(sub ? { subscription_data: { description: desc, metadata } }
         : { customer_creation: 'always', payment_intent_data: { description: desc, metadata } }),
     };
     if (c.env.TERMS_CONSENT === '1') {
       p.consent_collection = { terms_of_service: 'required' };
-      p.custom_text.terms_of_service_acceptance = { message: 'I agree to the terms and ask for DriveFX Pro to start immediately, so I lose my 14-day right to cancel once it has started.' };
     }
 
     const session = await checkoutSession(c, p, now);
