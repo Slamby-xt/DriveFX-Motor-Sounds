@@ -12,3 +12,4 @@ tools/admin-token.txt
 !.env.example
 .claude
 public
+stats
