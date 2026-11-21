@@ -325,8 +325,7 @@ body.solo .site-foot{display:none}
 .site-foot-top,.site-foot-bottom{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:24px}
 .site-foot-brand{font:900 14px var(--f-display);letter-spacing:.14em}
 .site-foot-brand span{color:var(--accent)}
-.site-foot-links,.site-foot-contact{display:flex;flex-wrap:wrap;align-items:center;column-gap:18px}
-.site-foot-contact{column-gap:10px}
+.site-foot-links{display:flex;flex-wrap:wrap;align-items:center;column-gap:18px}
 .site-foot a{display:inline-flex;align-items:center;min-height:44px;color:var(--text);font-weight:700;
   text-decoration:underline;text-decoration-color:var(--mute);text-underline-offset:.22em}
 .site-foot a:hover,.site-foot a:focus{color:var(--accent);text-decoration-color:currentColor}
