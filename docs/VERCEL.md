@@ -1,6 +1,6 @@
 # DriveFX release runbook
 
-Vercel serves the static cockpit and the same-origin license API. Supabase Postgres stores licenses and trial usage. Stripe Managed Payments handles checkout through Link. The production domain remains `https://drivefx.pro` and `www.drivefx.pro` redirects with the original path. The retired Cloudflare Worker is excluded from Vercel.
+Vercel serves the static cockpit and the same-origin license API. Supabase Postgres stores licenses and trial usage. Stripe Managed Payments handles checkout through Link. The production domain remains `https://drivefx.pro` and `www.drivefx.pro` redirects with the original path.
 
 ## Prepare the databases
 
@@ -31,7 +31,7 @@ Run `npx vercel link --scope <cohex-team-slug> --project <drivefx-project>` afte
 | `DATA_PREFIX` | `sandbox` | `prod` |
 | `DRIVEFX_DATABASE_URL` | Staging transaction pooler credential | Production transaction pooler credential |
 | `DRIVEFX_DATABASE_CA` | Trusted CA PEM when required | Trusted CA PEM when required |
-| `ADMIN_TOKEN` | Random staging value, 32+ characters | Different random value, 32+ characters |
+| `ADMIN_TOKEN` | Random staging value, 32+ printable ASCII characters without spaces | Different random value, 32+ printable ASCII characters without spaces |
 | `TRIAL_PEPPER` | Stable random staging value, 32+ characters | Different stable random value, 32+ characters |
 | `STRIPE_KEY` | Dedicated DriveFX sandbox restricted key | Dedicated DriveFX live restricted key |
 | `STRIPE_WEBHOOK_SECRET` | The deployed sandbox endpoint's secret | The apex live endpoint's secret |
@@ -79,7 +79,7 @@ Stripe can process some Managed Payments transactions for which it does not assu
 
 1. Confirm which team owns the existing assignment of both domains before changing them. Audit the existing live catalogue on the dedicated account with `node tools/stripe-setup.mjs --live --account <live_acct_id>`. The script performs GET requests in live mode. Reuse the live catalogue. Configure the live webhook at `https://drivefx.pro/stripe-webhook` only at the approved release, using the same API version and event set. Vercel should accept it directly at the apex.
 2. Deploy production with checkout paused using `npx vercel deploy --prod` after confirming scope, environment and ownership. If domain assignment blocks deployment, coordinate reassignment with the current owner. If DNS records must change, read the exact expected apex A, www CNAME, and any TXT verification record from the target Vercel project. Give those exact values to the owner to apply at one.com. Record the old assignment and DNS values before the change.
-3. Verify apex HTTPS, the path-preserving www redirect, static assets, `/admin`, `/status`, a trial write, paused Checkout, the configured portal, and rejection of invalid webhook signatures. Check Stripe endpoint delivery and monitor the first genuine Managed Payments event and order after sales are separately enabled. Use a non-customer test ID for smoke tests.
+3. Verify apex HTTPS, the path-preserving www redirect, static assets, `/admin` and the legacy admin bookmark redirect, `/status`, a trial write, paused Checkout, the configured portal, and rejection of invalid webhook signatures. Check Stripe endpoint delivery and monitor the first genuine Managed Payments event and order after sales are separately enabled. Use a non-customer test ID for smoke tests.
 4. To pause new sales, set Production `CHECKOUT_ENABLED=0` and redeploy immediately. Previously issued Checkout Sessions may still be open for up to 45 minutes. During an immediate payment stop, expire affected open sessions on the dedicated account through Stripe and verify the country block remains enforced. Pausing new sales leaves existing subscription billing and webhook acceptance intact.
 5. To roll back, promote a known compatible Postgres/Managed Payments Vercel deployment whose sales flags are appropriate for the incident. Keep the database and webhook endpoint intact, and confirm the promoted deployment still uses the production role and signing secret. Avoid promoting the old Redis deployment once Postgres has accepted writes. For a domain reversal, coordinate the reassignment and restore the exact recorded DNS values. Track 5xx or pending delivery in Stripe and resend after the fix if needed.
 

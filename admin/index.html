@@ -69,6 +69,7 @@ async function api(path, body) {
 // ---------- unlock ----------
 async function unlock() {
   const pw = $('#pw').value.trim(); if (!pw) return;
+  if (!/^[!-~]+$/.test(pw)) { $('#gmsg').style.color = 'var(--err)'; $('#gmsg').textContent = 'The password has a character that is not an English letter, digit or symbol (or a space). Switch the keyboard to English (EN) and type it again.'; return; }
   const btn = $('#unlock'); btn.disabled = true; $('#gmsg').style.color = 'var(--mute)'; $('#gmsg').textContent = 'Checking…';
   token = pw;
   try {
