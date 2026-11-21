@@ -76,7 +76,8 @@ svg { width:100%; height:auto; display:block; } .axis { fill:var(--mute); font-s
 <script>
 (() => {
 const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-const BASE = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/'; // works at / and at /statistics
+// The page may be shown through drivefx.pro/statistics (a rewrite), but the password check always goes straight to the stats site, so the login limit sees the real visitor address.
+const API = 'https://drivefx-stats.vercel.app';
 const IDLE = 15 * 60 * 1000; let token = null, days = 30, idleT = null, refT = null;
 const fmt = n => Number(n).toLocaleString('en-US');
 const CC = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -84,7 +85,7 @@ const country = c => { try { return c === '??' ? 'Unknown' : CC.of(c) || c; } ca
 
 async function api(path) {
   if (!/^[\x21-\x7E]+$/.test(token)) { const e = new Error('The password has a character that is not an English letter, digit or symbol. Switch the keyboard to English (EN).'); e.status = 400; throw e; }
-  const r = await fetch(path, { headers: { 'X-Stats-Token': token }, cache: 'no-store' });
+  const r = await fetch(API + path, { headers: { 'X-Stats-Token': token }, cache: 'no-store' });
   let j = {}; try { j = await r.json(); } catch {}
   if (!r.ok) { const e = new Error(j.error || 'Server error'); e.status = r.status; throw e; }
   return j;
@@ -122,7 +123,7 @@ function show(d) {
   list('#countries', d.countries, country); list('#devices', d.devices); list('#browsers', d.browsers); list('#os', d.os); list('#events', d.events);
   $('#upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
 }
-async function load() { show(await api(BASE + 'api/stats?days=' + days)); }
+async function load() { show(await api('/api/stats?days=' + days)); }
 function bump() { clearTimeout(idleT); idleT = setTimeout(lock, IDLE); }
 function lock() { token = null; clearInterval(refT); $('#app').classList.add('hide'); $('#gate').classList.remove('hide'); $('#sub').textContent = 'Locked.'; $('#gmsg').textContent = ''; $('#pw').focus(); }
 async function unlock() {
