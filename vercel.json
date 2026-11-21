@@ -6,6 +6,8 @@
   "cleanUrls": false,
   "trailingSlash": false,
   "redirects": [
+    { "source": "/panel-9955f43dff", "destination": "/admin", "permanent": false },
+    { "source": "/panel-9955f43dff/", "destination": "/admin", "permanent": false },
     { "source": "/(.*)", "has": [{ "type": "host", "value": "www.drivefx.pro" }], "destination": "https://drivefx.pro/$1", "permanent": true }
   ],
   "rewrites": [
