@@ -3,7 +3,8 @@ BEGIN;
 
 CREATE SCHEMA drivefx;
 REVOKE ALL ON SCHEMA drivefx FROM PUBLIC;
-CREATE ROLE drivefx_app LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+-- Postgres defaults to NOSUPERUSER, NOREPLICATION and NOBYPASSRLS.
+CREATE ROLE drivefx_app LOGIN NOINHERIT NOCREATEDB NOCREATEROLE;
 ALTER ROLE drivefx_app SET search_path TO pg_catalog;
 GRANT USAGE ON SCHEMA drivefx TO drivefx_app;
 
@@ -37,7 +38,7 @@ CREATE TABLE drivefx.transient (
 CREATE INDEX transient_expiry_idx ON drivefx.transient (expires_at);
 
 REVOKE ALL ON ALL TABLES IN SCHEMA drivefx FROM PUBLIC;
--- Hosted Supabase may have explicit Data API grants in its defaults.
+-- Some managed Postgres services may grant access to API roles by default.
 -- Conditional revocation also supports a standalone Postgres test database.
 DO $$
 DECLARE

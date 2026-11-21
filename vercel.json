@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
+  "regions": ["lhr1"],
   "buildCommand": "node tools/build-public.mjs",
   "outputDirectory": "public",
   "cleanUrls": false,
@@ -10,8 +11,10 @@
     { "source": "/panel-9955f43dff/", "destination": "/admin", "permanent": false },
     { "source": "/(.*)", "has": [{ "type": "host", "value": "www.drivefx.pro" }], "destination": "https://drivefx.pro/$1", "permanent": true }
   ],
+  "crons": [{ "path": "/internal/cleanup", "schedule": "15 3 * * *" }],
   "rewrites": [
     { "source": "/:r(status|prices|go|thanks|portal|trial|grant|revoke|list|find|relink|stripe-webhook)", "destination": "/api?__r=:r" },
+    { "source": "/internal/cleanup", "destination": "/api?__r=cleanup" },
     { "source": "/admin", "destination": "/admin/index.html" }
   ],
   "headers": [

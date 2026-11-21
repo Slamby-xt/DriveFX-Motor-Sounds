@@ -4,13 +4,14 @@ import { deviceMetadata, finishBilling, ID_RE, isActive, webhook } from './payme
 import { CURRENCIES, getPrices, PLANS, stripeDiagnostic, sx } from './stripe.js';
 import { checkIsolation } from './store.js';
 
-// DriveFX license server for Vercel (Node.js Functions) and Supabase Postgres.
+// DriveFX license server for Vercel (Node.js Functions) and Neon Postgres.
 //   GET  /status?id=DFX-XXXX-XXXX      public: is this device subscribed? -> { active, exp, plan, manage, cancel }
 //   POST /trial   {id, fp, used}        public: free-trial ledger kept on the server, so clearing cookies does not reset it
 //   GET  /prices                        public: prices in usd/eur/gbp from Stripe + the currency suggested for this visitor's country
 //   GET  /go?id=&plan=&cur=             public: creates a Stripe Checkout session and redirects to it (also what the QR code opens)
 //   GET  /thanks?id=                    public: page shown after Checkout (never grants anything)
 //   POST /portal                        public: address of Stripe's billing portal login page
+//   GET  /internal/cleanup            Vercel Cron -> us (Bearer CRON_SECRET)
 //   POST /stripe-webhook                Stripe -> us (signature checked on the raw body)
 //   POST /grant {id, days, mode} | POST /revoke {id} | GET /list | GET /find?email= | POST /relink {from, to}   admin, header X-Admin-Token
 // Server-only environment variables: see .env.example.
@@ -93,7 +94,9 @@ async function prices(c) {
 function checkoutEnabled(env) {
   if (env.CHECKOUT_ENABLED !== '1') return false;
   if (env.DATA_PREFIX !== 'prod') return true;
-  return env.VERCEL_ENV === 'production' && env.MANAGED_PAYMENTS_COUNTRY_GATE_VERIFIED === '1';
+  return env.VERCEL_ENV === 'production'
+    && env.MANAGED_PAYMENTS_COUNTRY_GATE_VERIFIED === '1'
+    && env.TERMS_CONSENT === '1';
 }
 
 const unavailable = () => page('DriveFX', '<h1>Payments are temporarily unavailable</h1><p>Please try again in a few minutes.</p>', 503);
@@ -218,15 +221,11 @@ async function go(c, url, now) {
       success_url: `${self}/thanks?id=${id}`,
       cancel_url: `${self}/thanks?id=${id}&c=1`,
       locale: 'auto',
-      custom_text: { submit: { message: sub
-        ? `Renews automatically every ${PLANS[plan].interval} until you cancel (DriveFX > your plan > Manage). Your DriveFX ID: ${id}`
-        : `One-time payment, no renewals. Your DriveFX ID: ${id}` } },
       ...(sub ? { subscription_data: { description: desc, metadata } }
         : { customer_creation: 'always', payment_intent_data: { description: desc, metadata } }),
     };
     if (c.env.TERMS_CONSENT === '1') {
       p.consent_collection = { terms_of_service: 'required' };
-      p.custom_text.terms_of_service_acceptance = { message: 'I agree to the terms and ask for DriveFX Pro to start immediately, so I lose my 14-day right to cancel once it has started.' };
     }
 
     const session = await checkoutSession(c, p, now);
@@ -331,7 +330,7 @@ async function trial(c, now) {
 }
 
 // ---- main router ----
-const ROUTES = new Set(['status', 'prices', 'go', 'thanks', 'portal', 'trial', 'grant', 'revoke', 'list', 'find', 'relink', 'stripe-webhook']);
+const ROUTES = new Set(['status', 'prices', 'go', 'thanks', 'portal', 'trial', 'grant', 'revoke', 'list', 'find', 'relink', 'stripe-webhook', 'cleanup']);
 
 export function routeOf(url) {
   const r = url.searchParams.get('__r');                       // set by the rewrites in vercel.json
@@ -347,6 +346,13 @@ export async function handle(req, deps) {
   const route = routeOf(url);
   if (!route) return json(c0, { error: 'not found' }, 404);
   const now = Math.floor(Date.now() / 1000);
+  if (route === 'cleanup') {
+    if (req.method !== 'GET') return json(c0, { error: 'method not allowed' }, 405);
+    const secret = env.CRON_SECRET;
+    if (!secret || secret.length < 32 || !await same(req.headers.get('Authorization') || '', `Bearer ${secret}`)) {
+      return json(c0, { error: 'unauthorized' }, 401);
+    }
+  }
   if (route === 'thanks' && req.method === 'GET') return thanks(c0, url); // needs no storage
   let c;
   try {
@@ -366,6 +372,7 @@ export async function handle(req, deps) {
       const active = isActive(rec, now);
       return json(c, { active, exp: rec ? rec.exp : 0, plan: rec ? rec.plan || 'manual' : null, manage: !!(rec && (rec.cus || rec.cuss)), cancel: !!(rec && rec.cancel && active), now });
     }
+    if (route === 'cleanup') return json(c, { deleted: await c.store.purgeExpired() });
     if (req.method === 'GET' && route === 'go') return await go(c, url, now);
     if (req.method === 'POST' && route === 'stripe-webhook') return await webhook(c, now);
     if (req.method === 'POST' && route === 'trial') return await trial(c, now);
