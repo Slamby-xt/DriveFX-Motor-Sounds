@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>DriveFX Stats</title>
+<style>
+:root { --bg:#04050a; --card:#0a0e1a; --line:#1a2440; --txt:#e8f1ff; --mute:#7f90ad; --cy:#00e5ff; --or:#ff8a3d; --err:#ff5d73; --ok:#3ddc97; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin:0; background:radial-gradient(900px 500px at 50% -10%, #0a1a2c, var(--bg)); color:var(--txt); font:500 15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; min-height:100vh; }
+main { max-width:1080px; margin:0 auto; padding:20px 16px 60px; }
+h1 { margin:0; font-size:20px; letter-spacing:.14em; } h1 b { color:var(--cy); }
+.sub { color:var(--mute); margin:2px 0 18px; font-size:13px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+.hide { display:none !important; }
+input, button, select { font:inherit; border-radius:10px; border:1px solid var(--line); background:#050813; color:var(--txt); padding:11px 13px; }
+input { width:100%; } button { cursor:pointer; background:var(--cy); color:#001018; font-weight:700; letter-spacing:.08em; border:0; }
+button.ghost { background:transparent; color:var(--txt); border:1px solid var(--line); font-weight:600; letter-spacing:0; padding:8px 12px; }
+button.ghost.on { border-color:var(--cy); color:var(--cy); }
+#gate { max-width:380px; margin:12vh auto 0; display:grid; gap:12px; }
+#gmsg { color:var(--err); min-height:1.2em; font-size:14px; margin:0; }
+.bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+.bar .sp { flex:1; }
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:14px; }
+.kpi .n { font-size:30px; font-weight:800; line-height:1.1; } .kpi .l { color:var(--mute); font-size:12px; letter-spacing:.08em; text-transform:uppercase; }
+.live .n { color:var(--ok); }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; margin-top:14px; }
+h2 { margin:0 0 10px; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.row { display:grid; grid-template-columns:1fr auto; gap:10px; padding:5px 0; font-size:14px; position:relative; }
+.row i { position:absolute; left:0; top:3px; bottom:3px; background:rgba(0,229,255,.12); border-radius:6px; z-index:0; }
+.row span { position:relative; z-index:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-left:6px; } .row b { position:relative; z-index:1; padding-right:6px; }
+.empty { color:var(--mute); font-size:14px; }
+svg { width:100%; height:auto; display:block; } .axis { fill:var(--mute); font-size:11px; }
+.legend { display:flex; gap:14px; font-size:12px; color:var(--mute); margin-top:6px; } .legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DRIVE<b>FX</b> · STATS</h1>
+  <p class="sub" id="sub">Locked.</p>
+
+  <section id="gate" class="card">
+    <label for="pw" style="font-size:12px;letter-spacing:.12em;color:var(--mute)">PASSWORD</label>
+    <input id="pw" type="password" autocomplete="current-password" autofocus>
+    <button id="go">UNLOCK</button>
+    <p id="gmsg"></p>
+  </section>
+
+  <section id="app" class="hide">
+    <div class="bar">
+      <button class="ghost" data-d="1">Today</button><button class="ghost" data-d="7">7 days</button><button class="ghost on" data-d="30">30 days</button><button class="ghost" data-d="90">90 days</button>
+      <span class="sp"></span><span class="sub" id="upd" style="margin:0"></span><button class="ghost" id="lock">Lock</button>
+    </div>
+    <div class="kpis">
+      <div class="card kpi live"><div class="n" id="kLive">0</div><div class="l">Online now (5 min)</div></div>
+      <div class="card kpi"><div class="n" id="kTodayV">0</div><div class="l">Visitors today</div></div>
+      <div class="card kpi"><div class="n" id="kVis">0</div><div class="l" id="lVis">Visitors</div></div>
+      <div class="card kpi"><div class="n" id="kPv">0</div><div class="l" id="lPv">Pageviews</div></div>
+    </div>
+    <div class="card"><h2 id="chartT">Visitors and pageviews per day</h2><div id="chart"></div>
+      <div class="legend"><span><i style="background:var(--cy)"></i>Visitors</span><span><i style="background:rgba(255,138,61,.75)"></i>Pageviews</span></div></div>
+    <div class="grid">
+      <div class="card"><h2>Pages</h2><div id="pages"></div></div>
+      <div class="card"><h2>Where visitors come from</h2><div id="refs"></div></div>
+      <div class="card"><h2>Countries</h2><div id="countries"></div></div>
+      <div class="card"><h2>Devices</h2><div id="devices"></div></div>
+      <div class="card"><h2>Browsers</h2><div id="browsers"></div></div>
+      <div class="card"><h2>Operating systems</h2><div id="os"></div></div>
+      <div class="card"><h2>Busiest hours (UTC)</h2><div id="hours"></div></div>
+      <div class="card"><h2>Events</h2><div id="events"></div></div>
+    </div>
+    <p class="sub" style="margin-top:18px">Cookie-free and anonymous: visitors are counted with a daily one-way hash, IP addresses are never stored. Bots are ignored.</p>
+  </section>
+</main>
+<script>
+(() => {
+const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const IDLE = 15 * 60 * 1000; let token = null, days = 30, idleT = null, refT = null;
+const fmt = n => Number(n).toLocaleString('en-US');
+const CC = new Intl.DisplayNames(['en'], { type: 'region' });
+const country = c => { try { return c === '??' ? 'Unknown' : CC.of(c) || c; } catch { return c; } };
+
+async function api(path) {
+  if (!/^[\x21-\x7E]+$/.test(token)) { const e = new Error('The password has a character that is not an English letter, digit or symbol. Switch the keyboard to English (EN).'); e.status = 400; throw e; }
+  const r = await fetch(path, { headers: { 'X-Stats-Token': token }, cache: 'no-store' });
+  let j = {}; try { j = await r.json(); } catch {}
+  if (!r.ok) { const e = new Error(j.error || 'Server error'); e.status = r.status; throw e; }
+  return j;
+}
+function list(el, rows, nameFn) {
+  const max = Math.max(1, ...rows.map(r => r[1]));
+  $(el).innerHTML = rows.length ? rows.map(([k, v]) => `<div class="row"><i style="width:${Math.max(2, v / max * 100)}%"></i><span>${esc(nameFn ? nameFn(k) : k)}</span><b>${fmt(v)}</b></div>`).join('') : '<div class="empty">No data yet.</div>';
+}
+function chart(series) {
+  const W = 1000, H = 230, L = 38, B = 26, T = 10, n = series.length, gw = (W - L) / n;
+  const max = Math.max(4, ...series.map(s => Math.max(s.pv, s.uv))), top = Math.ceil(max / 4) * 4;
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const y = T + (H - T - B) * (1 - i / 4); g += `<line x1="${L}" x2="${W}" y1="${y}" y2="${y}" stroke="#1a2440"/><text class="axis" x="${L - 6}" y="${y + 4}" text-anchor="end">${fmt(top * i / 4)}</text>`; }
+  const bw = Math.max(2, Math.min(26, gw * 0.7)), h = v => (H - T - B) * v / top;
+  series.forEach((s, i) => {
+    const x = L + gw * i + (gw - bw) / 2, yb = H - B;
+    g += `<rect x="${x}" y="${yb - h(s.pv)}" width="${bw}" height="${h(s.pv)}" rx="2" fill="rgba(255,138,61,.75)"><title>${s.date}: ${s.pv} pageviews</title></rect>`;
+    g += `<rect x="${x + bw * 0.25}" y="${yb - h(s.uv)}" width="${bw * 0.5}" height="${h(s.uv)}" rx="2" fill="#00e5ff"><title>${s.date}: ${s.uv} visitors</title></rect>`;
+    if (n <= 14 || i % Math.ceil(n / 10) === 0) g += `<text class="axis" x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${s.date.slice(5)}</text>`;
+  });
+  $('#chart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Visitors and pageviews per day">${g}</svg>`;
+}
+function hoursChart(h) {
+  const max = Math.max(1, ...h);
+  $('#hours').innerHTML = `<svg viewBox="0 0 480 110">${h.map((v, i) => `<rect x="${i * 20 + 2}" y="${90 - v / max * 80}" width="16" height="${v / max * 80}" rx="2" fill="#00e5ff" opacity=".8"><title>${String(i).padStart(2, '0')}:00 UTC: ${v}</title></rect>`).join('')}${[0, 6, 12, 18].map(i => `<text class="axis" x="${i * 20 + 10}" y="106" text-anchor="middle">${String(i).padStart(2, '0')}</text>`).join('')}</svg>`;
+}
+function show(d) {
+  $('#kLive').textContent = fmt(d.live); $('#kTodayV').textContent = fmt(d.today.uv);
+  const label = d.days === 1 ? 'today' : `last ${d.days} days`;
+  $('#kVis').textContent = fmt(d.totals.visitors); $('#kPv').textContent = fmt(d.totals.pageviews);
+  $('#lVis').textContent = `Visitors, ${label}`; $('#lPv').textContent = `Pageviews, ${label}`;
+  $('#chartT').textContent = `Visitors and pageviews per day, ${label}`;
+  chart(d.series); hoursChart(d.hours);
+  list('#pages', d.pages); list('#refs', d.referrers.length ? d.referrers : [], null); if (!d.referrers.length) $('#refs').innerHTML = '<div class="empty">No referrers yet (direct visits are not listed).</div>';
+  list('#countries', d.countries, country); list('#devices', d.devices); list('#browsers', d.browsers); list('#os', d.os); list('#events', d.events);
+  $('#upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+async function load() { show(await api('/api/stats?days=' + days)); }
+function bump() { clearTimeout(idleT); idleT = setTimeout(lock, IDLE); }
+function lock() { token = null; clearInterval(refT); $('#app').classList.add('hide'); $('#gate').classList.remove('hide'); $('#sub').textContent = 'Locked.'; $('#gmsg').textContent = ''; $('#pw').focus(); }
+async function unlock() {
+  const pw = $('#pw').value.trim(); if (!pw) return; token = pw; $('#gmsg').style.color = 'var(--mute)'; $('#gmsg').textContent = 'Checking…';
+  try { await load(); $('#pw').value = ''; $('#gate').classList.add('hide'); $('#app').classList.remove('hide'); $('#sub').textContent = 'Unlocked. Locks itself after 15 minutes without activity.'; bump(); refT = setInterval(() => load().catch(() => {}), 30000); }
+  catch (e) { token = null; $('#gmsg').style.color = 'var(--err)'; $('#gmsg').textContent = [400, 401, 429, 503].includes(e.status) ? (e.status === 503 ? 'The stats site is not configured yet.' : e.message) : 'Cannot reach the stats server.'; }
+}
+$('#go').onclick = unlock; $('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); }); $('#lock').onclick = lock;
+document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { days = +b.dataset.d; document.querySelectorAll('[data-d]').forEach(x => x.classList.toggle('on', x === b)); load().catch(e => e.status === 401 && lock()); bump(); });
+['pointerdown', 'keydown'].forEach(e => addEventListener(e, () => token && bump()));
+})();
+</script>
+</body>
+</html>

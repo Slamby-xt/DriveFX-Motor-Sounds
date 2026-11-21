@@ -15,7 +15,7 @@ worker/.dev.vars
 .env
 .env.*
 !.env.example
-public/
+/public/
 node_modules/
 
 .vercel
