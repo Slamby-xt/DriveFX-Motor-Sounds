@@ -37,6 +37,20 @@ CREATE TABLE drivefx.transient (
 CREATE INDEX transient_expiry_idx ON drivefx.transient (expires_at);
 
 REVOKE ALL ON ALL TABLES IN SCHEMA drivefx FROM PUBLIC;
+-- Hosted Supabase may have explicit Data API grants in its defaults.
+-- Conditional revocation also supports a standalone Postgres test database.
+DO $$
+DECLARE
+  api_role text;
+BEGIN
+  FOR api_role IN
+    SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated', 'service_role')
+  LOOP
+    EXECUTE format('REVOKE ALL ON SCHEMA drivefx FROM %I', api_role);
+    EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA drivefx FROM %I', api_role);
+  END LOOP;
+END
+$$;
 GRANT SELECT, INSERT, UPDATE, DELETE ON drivefx.records, drivefx.customers, drivefx.transient TO drivefx_app;
 
 -- Use an isolated project whose public schema has no application objects.

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { getPrices, PLANS, stripeEvents, sx } from './stripe.js';
+import { CURRENCIES, PLANS, stripeDiagnostic, stripeEvents, sx } from './stripe.js';
 
 export const ID_RE = /^DFX-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 export const isActive = (rec, now) => !!rec && (rec.exp === 0 || rec.exp > now);
@@ -8,12 +8,18 @@ const EVENT_TTL = 7 * 86400;
 const EVENT_LEASE = 90;
 const MANAGED_INTEGRATION = 'managed_v1';
 
-export const deviceMetadata = (device, plan) => ({ app: 'drivefx', integration: MANAGED_INTEGRATION, device, plan });
-const validMeta = m => m?.app === 'drivefx' && m.integration === MANAGED_INTEGRATION && ID_RE.test(m.device) && Object.hasOwn(PLANS, m.plan);
+export const deviceMetadata = (device, plan, price, currency, amount) => ({
+  app: 'drivefx', integration: MANAGED_INTEGRATION, device, plan, price, currency, amount: String(amount),
+});
 const stripeId = (value, prefix) => {
   const id = typeof value === 'object' ? value?.id : value;
-  return typeof id === 'string' && id.startsWith(prefix) && /^[a-zA-Z0-9_]+$/.test(id) ? id : null;
+  return typeof id === 'string' && id.startsWith(prefix) && /^[a-zA-Z0-9_]{1,255}$/.test(id) ? id : null;
 };
+const validMeta = m => m?.app === 'drivefx' && m.integration === MANAGED_INTEGRATION
+  && ID_RE.test(m.device) && Object.hasOwn(PLANS, m.plan) && stripeId(m.price, 'price_')
+  && CURRENCIES.includes(m.currency) && typeof m.amount === 'string' && /^[1-9]\d{0,7}$/.test(m.amount);
+const sameBinding = (a, b) => a.device === b.device && a.plan === b.plan && a.price === b.price
+  && a.currency === b.currency && a.amount === b.amount;
 const customerOf = obj => stripeId(obj.customer, 'cus_');
 const subOfInvoice = i => stripeId(i.parent?.subscription_details?.subscription ?? i.subscription, 'sub_');
 const getLic = (c, id) => c.store.get('lic:' + id);
@@ -24,23 +30,47 @@ function withCustomer(rec, cus) {
   return customers.includes(cus) ? customers : [...customers, cus].slice(-5);
 }
 
-async function checkoutChange(c, o, now) {
+async function checkoutChange(c, o, now, reject) {
+  if (o.metadata?.app !== 'drivefx' || o.payment_status !== 'paid') return null;
   const meta = o.metadata;
-  if (!validMeta(meta) || o.client_reference_id !== meta.device || o.payment_status !== 'paid') return null;
+  if (!validMeta(meta) || o.client_reference_id !== meta.device) return reject('checkout-metadata');
   const customer = customerOf(o);
-  if (!customer) return null;
+  if (!customer) return reject('checkout-customer');
   if (o.mode === 'subscription' && meta.plan !== 'lifetime') {
-    return subscriptionChange(c, stripeId(o.subscription, 'sub_'), { customer, meta, now });
+    const sub = stripeId(o.subscription, 'sub_');
+    if (!sub) return reject('checkout-subscription');
+    return subscriptionChange(c, sub, { customer, meta, now, reject, requiredPaid: true });
   }
-  if (o.mode !== 'payment' || meta.plan !== 'lifetime') return null;
-  const payment = stripeId(o.payment_intent, 'pi_');
-  if (!payment) return null;
+  const id = stripeId(o, 'cs_');
+  if (o.mode !== 'payment' || meta.plan !== 'lifetime' || !id) return reject('checkout-mode-or-id');
+  const session = await sx(c, 'GET', '/checkout/sessions/' + id, { expand: ['line_items'] });
+  if (stripeId(session, 'cs_') !== id || session.mode !== o.mode || session.client_reference_id !== meta.device
+      || customerOf(session) !== customer || !validMeta(session.metadata) || !sameBinding(session.metadata, meta)) {
+    return reject('checkout-association');
+  }
+  if (session.status !== 'complete' || session.payment_status !== 'paid') return reject('checkout-payment-pending', true);
+  const payment = stripeId(session.payment_intent, 'pi_');
+  if (!payment || !Array.isArray(session.line_items?.data)) return reject('checkout-details-pending', true);
+  if (o.payment_intent && stripeId(o.payment_intent, 'pi_') !== payment) return reject('checkout-payment-association');
+
+  // Stripe reports the integration amount at the top level. Adaptive Pricing
+  // can separately report a different presentment currency and amount.
+  const amount = Number(meta.amount);
+  const [item] = session.line_items.data;
+  if (session.line_items.has_more || session.line_items.data.length !== 1 || item.quantity !== 1
+      || stripeId(item.price, 'price_') !== meta.price || item.currency !== meta.currency || item.amount_total !== amount
+      || session.currency !== meta.currency || session.amount_total !== amount) return reject('checkout-price');
+
   const intent = await sx(c, 'GET', '/payment_intents/' + payment, { expand: ['latest_charge'] });
-  const charge = intent.latest_charge;
   if (stripeId(intent, 'pi_') !== payment || customerOf(intent) !== customer
-      || intent.status !== 'succeeded' || intent.amount_received !== PLANS.lifetime.amount
-      || !validMeta(intent.metadata) || intent.metadata.device !== meta.device || intent.metadata.plan !== meta.plan
-      || !stripeId(charge, 'ch_') || charge.refunded || charge.disputed) return null;
+      || !validMeta(intent.metadata) || !sameBinding(intent.metadata, meta)) return reject('payment-association');
+  if (intent.status !== 'succeeded' || !intent.latest_charge || typeof intent.latest_charge !== 'object') {
+    return reject('payment-details-pending', true);
+  }
+  const charge = intent.latest_charge;
+  if (!stripeId(charge, 'ch_') || stripeId(charge.payment_intent, 'pi_') !== payment || customerOf(charge) !== customer
+      || intent.currency !== session.currency || intent.amount_received !== session.amount_total) return reject('payment-amount-or-charge');
+  if (charge.refunded || charge.disputed) return reject('payment-reversed');
   return { type: 'lifetime', customer, device: meta.device, payment };
 }
 
@@ -53,38 +83,53 @@ async function invoicePayments(c, invoice) {
     .filter(Boolean);
 }
 
-async function subscriptionChange(c, id, { customer, meta, now } = {}) {
+async function subscriptionChange(c, id, { customer, meta, now, reject = () => null, requiredPaid, paidInvoice } = {}) {
   if (!id) return null;
-  // Read the revision before fetching Stripe. If another delivery commits in the
-  // meantime, retry from Stripe instead of committing an older snapshot.
-  const revision = (await c.store.get('sub:' + id))?.revision;
+  // Read before fetching Stripe. If another event commits in the meantime,
+  // retry from Stripe instead of applying an older snapshot.
+  const previous = await c.store.get('sub:' + id);
   const current = await sx(c, 'GET', '/subscriptions/' + id, { expand: ['latest_invoice'] });
   const m = current.metadata;
+  if (m?.app !== 'drivefx' && !previous && !meta) return null;
+  if (!m?.app && meta) return reject('subscription-metadata-pending', true);
   const cus = customerOf(current);
   if (stripeId(current, 'sub_') !== id || !cus || (customer && cus !== customer)
-      || !validMeta(m) || m.plan === 'lifetime' || (meta && (m.device !== meta.device || m.plan !== meta.plan))) return null;
-  const items = current.items?.data || [];
-  const item = items[0];
+      || !validMeta(m) || m.plan === 'lifetime' || (meta && !sameBinding(m, meta))) return reject('subscription-association');
+  // A relink changes the device that owns the stored entitlement. The
+  // original binding remains on the Stripe object for renewal validation.
+  if (previous?.price && (previous.price !== m.price || previous.currency !== m.currency
+      || previous.amount !== m.amount || previous.plan !== m.plan)) return reject('subscription-binding');
   const terminal = ['canceled', 'unpaid', 'incomplete_expired'].includes(current.status);
   const change = {
-    type: 'subscription', id, revision, device: m.device, customer: cus, plan: m.plan, created: current.created,
+    type: 'subscription', id, revision: previous?.revision, device: m.device, customer: cus, plan: m.plan,
+    price: m.price, currency: m.currency, amount: m.amount, created: current.created,
     terminal, cancel: !!(current.cancel_at_period_end || current.cancel_at),
   };
+  if (requiredPaid && current.status === 'incomplete') return reject('subscription-activation-pending', true);
   if (terminal || current.status !== 'active') return change;
-  const price = await getPrices(c);
-  if (items.length !== 1 || stripeId(item.price, 'price_') !== price[m.plan].id) return change;
+  if (!Array.isArray(current.items?.data)) return reject('subscription-items-pending', true);
+  const items = current.items.data;
+  const item = items[0];
+  if (current.items?.has_more || items.length !== 1 || item.quantity !== 1
+      || stripeId(item.price, 'price_') !== m.price || current.currency !== m.currency) return reject('subscription-price');
   const latest = current.latest_invoice;
   const invoice = stripeId(latest, 'in_');
-  if (!invoice || latest.status !== 'paid' || latest.amount_paid <= 0 || latest.paid_out_of_band
-      || subOfInvoice(latest) !== id || customerOf(latest) !== cus) return change;
+  if (!invoice || typeof latest !== 'object') return reject('subscription-invoice-pending', true);
+  if (latest.status !== 'paid') {
+    if (requiredPaid && (!previous?.invoice || paidInvoice === invoice)) return reject('subscription-invoice-pending', true);
+    return change;
+  }
+  if (latest.amount_paid <= 0 || latest.paid_out_of_band || subOfInvoice(latest) !== id || customerOf(latest) !== cus) {
+    return reject('subscription-invoice');
+  }
   const end = item.current_period_end;
   if (!Number.isSafeInteger(end) || end + GRACE <= now) return change;
   const payments = await invoicePayments(c, invoice);
-  if (payments.length) Object.assign(change, { end, invoice, payments });
-  return change;
+  if (!payments.length) return reject('invoice-payment-pending', true);
+  return { ...change, end, invoice, payments };
 }
 
-async function reversalChange(c, ev, now) {
+async function reversalChange(c, ev, now, reject) {
   const o = ev.data.object;
   const dispute = ev.type === 'charge.dispute.created';
   if (!dispute && o.refunded !== true) return null;
@@ -98,7 +143,9 @@ async function reversalChange(c, ev, now) {
   const purchase = await c.store.get('pi:' + payment);
   let newerPeriod;
   if (purchase?.sub && purchase.customer === customer) {
-    const snapshot = await subscriptionChange(c, purchase.sub, { customer, now });
+    const snapshot = await subscriptionChange(c, purchase.sub, {
+      customer, now, reject: (reason, retry) => retry ? reject(reason, true) : null,
+    });
     // A paid renewal can precede its own webhook. Reconcile the new period
     // before deciding whether the reversed payment still funds the license.
     if (snapshot?.end && snapshot.invoice !== purchase.invoice) newerPeriod = snapshot;
@@ -107,16 +154,27 @@ async function reversalChange(c, ev, now) {
 }
 
 async function prepareEvent(c, ev, now) {
+  function reject(reason, retry = false) {
+    if (retry) {
+      const e = new Error('Stripe payment evidence pending');
+      e.eventReason = reason;
+      throw e;
+    }
+    console.warn('DriveFX payment event rejected', { event: ev.id, type: ev.type, reason });
+    return null;
+  }
   const o = ev.data.object;
   switch (ev.type) {
     case 'checkout.session.completed':
-    case 'checkout.session.async_payment_succeeded': return checkoutChange(c, o, now);
-    case 'invoice.paid':
+    case 'checkout.session.async_payment_succeeded': return checkoutChange(c, o, now, reject);
+    case 'invoice.paid': return subscriptionChange(c, subOfInvoice(o), {
+      customer: customerOf(o), now, reject, requiredPaid: true, paidInvoice: stripeId(o, 'in_'),
+    });
     case 'invoice.payment_failed': return subscriptionChange(c, subOfInvoice(o), { customer: customerOf(o), now });
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted': return subscriptionChange(c, stripeId(o, 'sub_'), { customer: customerOf(o), now });
     case 'charge.refunded':
-    case 'charge.dispute.created': return reversalChange(c, ev, now);
+    case 'charge.dispute.created': return reversalChange(c, ev, now, reject);
     default: return null;
   }
 }
@@ -147,7 +205,7 @@ async function applySubscription(c, v, now) {
   const id = previous?.device || v.device;
   const cur = await getLic(c, id);
   const next = {
-    device: id, customer: v.customer, plan: v.plan, created: v.created,
+    device: id, customer: v.customer, plan: v.plan, price: v.price, currency: v.currency, amount: v.amount, created: v.created,
     terminal: v.terminal, revision: crypto.randomUUID(),
     invoice: previous?.invoice, payments: previous?.payments, end: previous?.end,
   };
@@ -227,7 +285,7 @@ export async function finishBilling(c, key) {
   if (!job) return;
   const path = '/subscriptions/' + job.sub;
   try {
-    if (job.operation === 'period_end') await sx(c, 'POST', path, { cancel_at_period_end: true }, 'drivefx-' + key);
+    if (job.operation === 'period_end') await sx(c, 'POST', path, { cancel_at_period_end: true });
     else await sx(c, 'DELETE', path);
   } catch (e) {
     if (e.code !== 'resource_missing' && e.code !== 'invalid_canceled_subscription_fields') throw e;
@@ -263,19 +321,21 @@ export async function webhook(c, now) {
     return new Response('in progress', { status: 409 });
   }
   try {
-    if (!(await c.store.get(marker))) {
+    if (!(await c.store.get(marker)) && !(await c.store.get(job))) {
       const change = await prepareEvent(c, ev, now);
       await c.store.transaction('license', async store => {
         if (await store.get(marker)) return;
         const effect = await applyEvent({ ...c, store }, change, now);
-        if (effect) await store.set(job, effect);
+        if (effect) await store.set(job, { ...effect, queuedAt: now });
         await store.set(marker, true, { ex: EVENT_TTL });
       });
     }
     await finishBilling(c, job);
     return new Response('ok');
-  } catch {
-    console.error('DriveFX webhook processing failed');
+  } catch (error) {
+    console.error('DriveFX webhook processing failed', {
+      event: id, type: ev.type, reason: error.eventReason || 'processing-failed', ...stripeDiagnostic(error),
+    });
     return new Response('error', { status: 500 });
   } finally {
     await c.store.release(lease, token).catch(() => {});

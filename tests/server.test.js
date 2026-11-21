@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { app, memoryStore } from './helpers.js';
-import { deviceMetadata } from '../server/payments.js';
+import { app, fakeStripe, lifetimeEvent, memoryStore, testMetadata } from './helpers.js';
 import { checkIsolation } from '../server/store.js';
 import { routeOf, handle } from '../server/handler.js';
 
@@ -9,13 +8,13 @@ const ID = 'DFX-AAAA-0001', ID2 = 'DFX-BBBB-0002';
 const now = () => Math.floor(Date.now() / 1000);
 const status = async (a, id = ID) => a.j(await a.call('GET', '/status?id=' + id));
 const subObj = (o = {}) => {
-  const sub = { id: 'sub_1', status: 'active', customer: 'cus_1', created: now(), metadata: deviceMetadata(ID, 'monthly'), ...o };
+  const sub = { id: 'sub_1', status: 'active', customer: 'cus_1', currency: 'usd', created: now(), metadata: testMetadata(ID, 'monthly'), ...o };
   const data = o.items?.data || [{ current_period_end: now() + 30 * 86400 }];
-  return { ...sub, items: { data: data.map(item => ({ price: { id: sub.metadata.plan === 'yearly' ? 'price_y' : 'price_m' }, ...item })) } };
+  return { ...sub, items: { data: data.map(item => ({ price: { id: sub.metadata.price }, quantity: 1, ...item })) } };
 };
 const checkoutSub = (a, over) => a.event('checkout.session.completed', {
   mode: 'subscription', payment_status: 'paid', subscription: 'sub_1', customer: 'cus_1',
-  client_reference_id: ID, metadata: deviceMetadata(ID, 'monthly'), ...over,
+  client_reference_id: ID, metadata: testMetadata(ID, 'monthly'), ...over,
 });
 
 test('routing, unknown routes, CORS', async () => {
@@ -136,7 +135,7 @@ test('monthly activation, manage flag, renewal extends, cancellation flag, end',
 
 test('yearly plan recorded; failed payment never extends', async () => {
   const a = app();
-  const meta = deviceMetadata(ID, 'yearly');
+  const meta = testMetadata(ID, 'yearly');
   a.stripe.subs.sub_1 = subObj({ metadata: meta });
   await a.hook(checkoutSub(a, { metadata: meta }));
   const before = await status(a); assert.equal(before.plan, 'yearly');
@@ -149,7 +148,7 @@ test('lifetime purchase replaces subscription, renewals cannot downgrade, duplic
   const a = app();
   a.stripe.subs.sub_1 = subObj(); await a.hook(checkoutSub(a));
   a.stripe.pis.pi_1 = { charge: 'ch_1' }; a.stripe.charges.ch_1 = { id: 'ch_1', refunded: false, disputed: false, customer: 'cus_1', payment_intent: 'pi_1' };
-  const life = () => a.event('checkout.session.completed', { mode: 'payment', payment_status: 'paid', payment_intent: 'pi_1', customer: 'cus_1', client_reference_id: ID, metadata: deviceMetadata(ID, 'lifetime') });
+  const life = () => lifetimeEvent(a, 'pi_1', 'cus_1');
   await a.hook(life());
   const s = await status(a); assert.equal(s.exp, 0); assert.equal(s.active, true); assert.equal(s.plan, 'lifetime');
   assert.deepEqual(a.stripe.cancelled, ['sub_1'], 'old subscription set to cancel');
@@ -170,13 +169,13 @@ test('unpaid / foreign-app / bad-id events change nothing', async () => {
 test('refund and dispute end access; partial refund keeps it; refunded-before-grant blocks the grant', async () => {
   const a = app();
   a.stripe.pis.pi_1 = { charge: 'ch_1' }; a.stripe.charges.ch_1 = { id: 'ch_1', refunded: false, disputed: false, customer: 'cus_1', payment_intent: 'pi_1' };
-  await a.hook(a.event('checkout.session.completed', { mode: 'payment', payment_status: 'paid', payment_intent: 'pi_1', customer: 'cus_1', client_reference_id: ID, metadata: deviceMetadata(ID, 'lifetime') }));
+  await a.hook(lifetimeEvent(a, 'pi_1', 'cus_1'));
   await a.hook(a.event('charge.refunded', { ...a.stripe.charges.ch_1, refunded: false }));
   assert.equal((await status(a)).active, true, 'partial refund keeps Pro');
   await a.hook(a.event('charge.refunded', { ...a.stripe.charges.ch_1, refunded: true }));
   assert.equal((await status(a)).active, false);
   const b = app(); b.stripe.pis.pi_2 = { charge: 'ch_2' }; b.stripe.charges.ch_2 = { id: 'ch_2', refunded: true, customer: 'cus_2', payment_intent: 'pi_2' };
-  await b.hook(b.event('checkout.session.completed', { mode: 'payment', payment_status: 'paid', payment_intent: 'pi_2', customer: 'cus_2', client_reference_id: ID, metadata: deviceMetadata(ID, 'lifetime') }));
+  await b.hook(lifetimeEvent(b, 'pi_2', 'cus_2'));
   assert.equal((await status(b)).active, false);
   const c = app(); c.stripe.subs.sub_1 = subObj({ invoicePayment: 'pi_3' }); await c.hook(checkoutSub(c));
   c.stripe.charges.ch_3 = { id: 'ch_3', customer: 'cus_1', payment_intent: 'pi_3' };
@@ -204,7 +203,7 @@ test('webhook retries: duplicate ack, failure -> 500 then retry succeeds, concur
 test('concurrent different events for one purchase serialise (no double lifetime grant)', async () => {
   const a = app();
   a.stripe.pis.pi_1 = { charge: 'ch_1' }; a.stripe.charges.ch_1 = { id: 'ch_1', customer: 'cus_1', payment_intent: 'pi_1' };
-  const mk = () => a.event('checkout.session.completed', { mode: 'payment', payment_status: 'paid', payment_intent: 'pi_1', customer: 'cus_1', client_reference_id: ID, metadata: deviceMetadata(ID, 'lifetime') });
+  const mk = () => lifetimeEvent(a, 'pi_1', 'cus_1');
   await Promise.all([a.hook(mk()), a.hook(mk()), a.hook(mk())]);
   const recs = [...a.store.m.keys()].filter(k => k.startsWith('lic:'));
   assert.deepEqual(recs, ['lic:' + ID]); assert.equal((await status(a)).plan, 'lifetime');
@@ -308,7 +307,7 @@ test('checkout requires explicit enablement and production country verification'
   assert.equal((await paused.call('POST', '/portal')).status, 200);
   assert.equal((await paused.admin('POST', '/grant', { id: ID, days: 30 })).status, 200);
   assert.equal((await status(paused)).active, true);
-  paused.stripe.subs.sub_1 = subObj({ metadata: deviceMetadata(ID2, 'monthly') });
+  paused.stripe.subs.sub_1 = subObj({ metadata: testMetadata(ID2, 'monthly') });
   assert.equal((await paused.hook(paused.event('invoice.paid', { subscription: 'sub_1' }))).status, 200);
   assert.equal((await status(paused, ID2)).active, true);
   assert.ok(!paused.stripe.calls.some(x => x.p.startsWith('/checkout/sessions')));
@@ -377,7 +376,7 @@ test('webhook rejects the wrong or missing Stripe mode and malformed signature t
 test('an active subscription without an actual paid eligible invoice does not create or extend Pro', async () => {
   const a = app();
   a.stripe.subs.sub_1 = subObj({ latest_invoice: null });
-  await a.hook(checkoutSub(a));
+  assert.equal((await a.hook(checkoutSub(a))).status, 500);
   assert.equal((await status(a)).active, false);
   a.stripe.subs.sub_1 = subObj();
   await a.hook(a.event('invoice.paid', { subscription: 'sub_1' }));
@@ -396,7 +395,7 @@ test('refunds correlate to the funding invoice and device even with one Stripe c
   await a.hook(checkoutSub(a));
   a.stripe.subs.sub_1 = subObj({ invoicePayment: 'pi_renewal', items: { data: [{ current_period_end: newEnd }] } });
   await a.hook(a.event('invoice.paid', { subscription: 'sub_1' }));
-  a.stripe.subs.sub_2 = subObj({ id: 'sub_2', metadata: deviceMetadata(ID2, 'monthly'), invoicePayment: 'pi_other' });
+  a.stripe.subs.sub_2 = subObj({ id: 'sub_2', metadata: testMetadata(ID2, 'monthly'), invoicePayment: 'pi_other' });
   await a.hook(a.event('invoice.paid', { subscription: 'sub_2' }));
   for (const id of ['pi_old', 'pi_unknown']) {
     await a.hook(a.event('charge.refunded', { id: 'ch_' + id, customer: 'cus_1', payment_intent: id, refunded: true }));
@@ -427,19 +426,23 @@ test('a temporary billing failure leaves Lifetime and the billing action durable
   await a.hook(checkoutSub(a));
   a.stripe.pis.pi_upgrade = { charge: 'ch_upgrade' };
   a.stripe.charges.ch_upgrade = { id: 'ch_upgrade', customer: 'cus_1', payment_intent: 'pi_upgrade' };
-  const ev = a.event('checkout.session.completed', {
-    mode: 'payment', payment_status: 'paid', payment_intent: 'pi_upgrade', customer: 'cus_1',
-    client_reference_id: ID, metadata: deviceMetadata(ID, 'lifetime'),
-  });
+  const ev = lifetimeEvent(a, 'pi_upgrade');
   a.stripe.failBilling = true;
   assert.equal((await a.hook(ev)).status, 500);
   assert.equal((await status(a)).plan, 'lifetime');
   assert.equal(await a.store.get('ev:' + ev.id), true);
-  assert.deepEqual(await a.store.get('billing:' + ev.id), { sub: 'sub_1', operation: 'period_end' });
+  const job = await a.store.get('billing:' + ev.id);
+  assert.equal(job.sub, 'sub_1');
+  assert.equal(job.operation, 'period_end');
+  assert.ok(Number.isInteger(job.queuedAt));
   a.stripe.failBilling = false;
+  await a.store.del('ev:' + ev.id); // The durable job outlives the event marker.
   assert.equal((await a.hook(ev)).status, 200);
   assert.deepEqual(a.stripe.cancelled, ['sub_1']);
   assert.equal(await a.store.get('billing:' + ev.id), null);
+  const updates = a.stripe.calls.filter(call => call.method === 'POST' && call.p === '/subscriptions/sub_1');
+  assert.equal(updates.length, 2);
+  assert.ok(updates.every(call => !call.headers['Idempotency-Key']));
 });
 
 test('parallel updates store the maximum trial usage and group normalized IPv6 traffic', async () => {
@@ -518,13 +521,237 @@ test('a concurrent renewal and Lifetime purchase settle on Lifetime', async () =
   a.stripe.subs.sub_1 = subObj({ items: { data: [{ current_period_end: now() + 60 * 86400 }] } });
   const results = await Promise.all([
     a.hook(a.event('invoice.paid', { subscription: 'sub_1' })),
-    a.hook(a.event('checkout.session.completed', {
-      mode: 'payment', payment_status: 'paid', payment_intent: 'pi_parallel', customer: 'cus_1',
-      client_reference_id: ID, metadata: deviceMetadata(ID, 'lifetime'),
-    })),
+    a.hook(lifetimeEvent(a, 'pi_parallel')),
   ]);
   assert.ok(results.every(r => r.status === 200));
   assert.equal((await status(a)).plan, 'lifetime');
   assert.equal((await status(a)).exp, 0);
   assert.ok(a.stripe.cancelled.includes('sub_1'));
+});
+
+test('Lifetime validates Stripe line items and integration amounts while allowing separate Adaptive Pricing presentment', async t => {
+  const rejected = t.mock.method(console, 'warn', () => {});
+  const a = app();
+  const metadata = testMetadata(ID, 'lifetime', 'price_l', 'gbp');
+  const presentment_details = { presentment_amount: 6719, presentment_currency: 'cad' };
+  a.stripe.pis.pi_adaptive = { charge: 'ch_adaptive', metadata, currency: 'gbp', presentment_details };
+  a.stripe.charges.ch_adaptive = { id: 'ch_adaptive', payment_intent: 'pi_adaptive', customer: 'cus_1' };
+  const event = lifetimeEvent(a, 'pi_adaptive', 'cus_1', ID, {
+    metadata, session: { presentment_details }, type: 'checkout.session.async_payment_succeeded',
+  });
+  const session = a.stripe.sessions.cs_paid_pi_adaptive;
+  session.line_items.data[0].price.id = 'price_other';
+  assert.equal((await a.hook(event)).status, 200);
+  assert.equal((await status(a)).active, false);
+  assert.deepEqual(rejected.mock.calls[0].arguments[1], {
+    event: event.id, type: event.type, reason: 'checkout-price',
+  });
+  session.line_items.data[0].price.id = 'price_l';
+  assert.equal((await a.hook({ ...event, id: 'evt_adaptive_ok' })).status, 200);
+  assert.equal((await status(a)).plan, 'lifetime');
+  const request = a.stripe.calls.find(call => call.p === '/checkout/sessions/cs_paid_pi_adaptive');
+  assert.equal(request.query.get('expand[0]'), 'line_items');
+});
+
+test('missing authentic paid Checkout data retries and foreign payments make no Stripe requests', async t => {
+  const diagnostics = t.mock.method(console, 'error', () => {});
+  const a = app();
+  const ev = lifetimeEvent(a, 'pi_pending');
+  a.stripe.pis.pi_pending = { charge: 'ch_pending' };
+  const session = a.stripe.sessions.cs_paid_pi_pending;
+  delete a.stripe.sessions.cs_paid_pi_pending;
+  assert.equal((await a.hook(ev)).status, 500);
+  assert.equal(await a.store.get('ev:' + ev.id), null);
+  a.stripe.sessions.cs_paid_pi_pending = { ...session, line_items: undefined };
+  assert.equal((await a.hook(ev)).status, 500);
+  assert.equal(diagnostics.mock.calls.at(-1).arguments[1].reason, 'checkout-details-pending');
+  a.stripe.sessions.cs_paid_pi_pending = session;
+  a.stripe.charges.ch_pending = { id: 'ch_pending', payment_intent: 'pi_pending', customer: 'cus_1' };
+  assert.equal((await a.hook(ev)).status, 200);
+  assert.equal((await status(a)).active, true);
+  const calls = a.stripe.calls.length;
+  const foreign = a.event(ev.type, { ...ev.data.object, metadata: { app: 'foreign' } });
+  assert.equal((await a.hook(foreign)).status, 200);
+  assert.equal(a.stripe.calls.length, calls);
+});
+
+test('the paid subscription keeps its bound price after lookup rotation and unrelated catalogue drift', async () => {
+  const a = app({ env: { STRIPE_KEY: 'sk_test_price_rotation' } });
+  a.stripe.subs.sub_1 = subObj();
+  assert.equal((await a.hook(checkoutSub(a))).status, 200);
+  assert.equal((await a.store.get('sub:sub_1')).price, 'price_m');
+  assert.equal((await status(a)).active, true);
+  a.stripe.prices[0].id = 'price_rotated';
+  a.stripe.prices[1].currency_options.eur.tax_behavior = 'exclusive';
+  assert.equal((await a.call('GET', '/prices')).status, 503);
+  const end = now() + 60 * 86400;
+  a.stripe.subs.sub_1 = subObj({ items: { data: [{ current_period_end: end }] } });
+  const paid = a.event('invoice.paid', { subscription: 'sub_1' });
+  assert.equal((await a.hook(paid)).status, 200);
+  assert.equal((await status(a)).exp, end + 2 * 86400);
+  assert.equal(a.stripe.calls.filter(x => x.p === '/prices').length, 1, 'only the explicit catalogue request reads the current prices');
+  a.stripe.subs.sub_1 = subObj({ items: { data: [{ current_period_end: end + 86400, price: { id: 'price_rotated' } }] } });
+  assert.equal((await a.hook({ ...paid, id: 'evt_unbound_price' })).status, 200);
+  assert.equal((await status(a)).exp, end + 2 * 86400);
+});
+
+function stripeCreateWrapper(onCreate) {
+  const stripe = fakeStripe(), real = stripe.fetch;
+  stripe.fetch = (url, init) => {
+    if (new URL(url).pathname === '/v1/checkout/sessions' && init.method === 'POST') {
+      return onCreate(init.headers['Idempotency-Key'], () => real(url, init));
+    }
+    return real(url, init);
+  };
+  return stripe;
+}
+
+const checkoutPath = '/go?id=' + ID + '&plan=monthly&cur=usd';
+const stripeError = (status, code, param) => Response.json({ error: { code, param, message: 'sensitive test message' } }, { status });
+
+test('Checkout recovers once from cached Stripe 5xx responses and fences concurrent stale create results', async t => {
+  t.mock.method(console, 'warn', () => {});
+  let first, resume, start;
+  const started = new Promise(resolve => { start = resolve; });
+  const delayed = new Promise(resolve => { resume = resolve; });
+  const keys = [];
+  const stripe = stripeCreateWrapper(async (key, real) => {
+    keys.push(key);
+    if (!first) {
+      first = key;
+      start();
+      await delayed;
+      return real(); // A late successful response from a superseded token.
+    }
+    if (key === first) return stripeError(500, 'api_error');
+    return real();
+  });
+  const a = app({ stripe });
+  const stale = a.call('GET', checkoutPath);
+  await started;
+  let recovered;
+  try {
+    recovered = await a.call('GET', checkoutPath);
+    assert.equal(recovered.status, 303);
+  } finally {
+    resume();
+  }
+  const last = await stale;
+  assert.equal(last.status, 303);
+  assert.equal(last.headers.get('location'), recovered.headers.get('location'));
+  assert.equal(new Set(keys).size, 2);
+  assert.equal(Object.keys(stripe.sessions).length, 2);
+  const current = await a.store.get([...a.store.m.keys()].find(key => key.startsWith('checkout:')));
+  assert.equal(current.session, 'cs_0');
+  assert.doesNotMatch(last.headers.get('location'), /cs_1/);
+});
+
+test('two cached Stripe 5xx responses back off before allowing a fresh attempt', async t => {
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  let failing = true;
+  const keys = [];
+  const stripe = stripeCreateWrapper((key, real) => {
+    keys.push(key);
+    return failing ? stripeError(500, 'api_error') : real();
+  });
+  const a = app({ stripe });
+  assert.equal((await a.call('GET', checkoutPath)).status, 503);
+  assert.equal((await a.call('GET', checkoutPath)).status, 503);
+  assert.equal(keys.length, 2);
+  assert.equal(new Set(keys).size, 2);
+  const [key, row] = [...a.store.m.entries()].find(([key]) => key.startsWith('checkout:'));
+  assert.ok(row.v.retryAt > now() && row.exp > Date.now());
+  a.store.m.set(key, { ...row, v: { ...row.v, retryAt: now() - 1, expires: row.v.expires - 5 } });
+  failing = false;
+  assert.equal((await a.call('GET', checkoutPath)).status, 303);
+  assert.equal(new Set(keys).size, 3);
+  const renewed = await a.store.get(key);
+  assert.ok(renewed.expires > row.v.expires - 5);
+  assert.equal(renewed.retryAt, undefined);
+});
+
+test('Checkout refreshes a late unexposed attempt and fences stale or unsafe redirects', async t => {
+  const warnings = t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  let canCreate = false;
+  const stripe = stripeCreateWrapper((key, real) => canCreate ? real() : stripeError(400, 'parameter_unknown'));
+  const a = app({ stripe });
+  assert.equal((await a.call('GET', checkoutPath)).status, 503);
+  const [key, row] = [...a.store.m.entries()].find(([key]) => key.startsWith('checkout:'));
+  assert.equal(row.v.session, undefined);
+  const old = { ...row.v, expires: now() + 1799 };
+  a.store.m.set(key, { v: old, exp: Date.now() + 1799000 });
+  canCreate = true;
+  assert.equal((await a.call('GET', checkoutPath)).status, 303);
+  const latest = await a.store.get(key);
+  assert.notEqual(latest.token, old.token);
+  assert.ok(latest.expires - now() > 31 * 60);
+  assert.ok(a.store.m.get(key).exp > Date.now() + 31 * 60 * 1000);
+  assert.equal(await a.store.attachSession(key, old.token, 'cs_stale'), false);
+  const session = stripe.sessions[latest.session];
+  session.url = 'https://example.invalid/private_checkout_secret';
+  assert.equal((await a.call('GET', checkoutPath)).status, 503);
+  assert.equal(warnings.mock.calls.at(-1).arguments[1].reason, 'unexpected-host');
+  session.expires_at += 1;
+  assert.equal((await a.call('GET', checkoutPath)).status, 503);
+  assert.equal(warnings.mock.calls.at(-1).arguments[1].reason, 'stale-session');
+  assert.doesNotMatch(JSON.stringify(warnings.mock.calls.map(c => c.arguments)), /private_checkout_secret/);
+});
+
+test('an already exposed near-expiry session is reused without overlapping checkout creation', async () => {
+  const a = app();
+  const first = await a.call('GET', checkoutPath);
+  const [key, row] = [...a.store.m.entries()].find(([key]) => key.startsWith('checkout:'));
+  const expires = now() + 60;
+  a.store.m.set(key, { v: { ...row.v, expires }, exp: Date.now() + 60000 });
+  a.stripe.sessions.cs_0.expires_at = expires;
+  const second = await a.call('GET', checkoutPath);
+  assert.equal(second.status, 303);
+  assert.equal(second.headers.get('location'), first.headers.get('location'));
+  assert.equal(a.stripe.calls.filter(call => call.method === 'POST').length, 1);
+});
+
+test('checkout retries a Stripe idempotency conflict and logs only safe error fields', async t => {
+  const logs = t.mock.method(console, 'error', () => {});
+  let attempts = 0;
+  const stripe = stripeCreateWrapper((key, real) => {
+    if (++attempts === 1) return stripeError(409, 'idempotency_key_in_use');
+    return stripeError(400, 'parameter_unknown', 'managed_payments[enabled]');
+  });
+  const a = app({ stripe });
+  assert.equal((await a.call('GET', checkoutPath)).status, 503);
+  assert.equal(attempts, 2);
+  assert.deepEqual(logs.mock.calls[0].arguments[1], {
+    stripeStatus: 400, stripeCode: 'parameter_unknown', stripeParam: 'managed_payments[enabled]',
+  });
+  const another = app({ stripe: stripeCreateWrapper(() => stripeError(403, 'sk_test_private_value', 'email_private_value')) });
+  assert.equal((await another.call('GET', checkoutPath)).status, 503);
+  assert.deepEqual(logs.mock.calls[1].arguments[1], { stripeStatus: 403, stripeCode: 'other', stripeParam: 'other' });
+  assert.doesNotMatch(JSON.stringify(logs.mock.calls.map(c => c.arguments)), /sensitive|private_value/);
+});
+
+
+test('an old reversal waits if evidence of the newer paid invoice is still unavailable', async t => {
+  t.mock.method(console, 'error', () => {});
+  const stripe = fakeStripe(), original = stripe.fetch;
+  let delayed = false;
+  stripe.fetch = (url, init) => delayed && new URL(url).pathname === '/v1/invoice_payments'
+    ? Response.json({ data: [] }) : original(url, init);
+  const a = app({ stripe });
+  stripe.subs.sub_1 = subObj({ invoicePayment: 'pi_previous' });
+  await a.hook(checkoutSub(a));
+  const end = now() + 60 * 86400;
+  stripe.subs.sub_1 = subObj({ invoicePayment: 'pi_new', items: { data: [{ current_period_end: end }] } });
+  const ev = a.event('charge.refunded', {
+    id: 'ch_previous', customer: 'cus_1', payment_intent: 'pi_previous', refunded: true,
+  });
+  delayed = true;
+  assert.equal((await a.hook(ev)).status, 500);
+  assert.equal(await a.store.get('ev:' + ev.id), null);
+  assert.equal((await status(a)).active, true);
+  delayed = false;
+  assert.equal((await a.hook(ev)).status, 200);
+  assert.equal((await status(a)).exp, end + 2 * 86400);
+  assert.deepEqual(stripe.deleted, []);
 });

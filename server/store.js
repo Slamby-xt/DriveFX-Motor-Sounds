@@ -71,10 +71,22 @@ function queries(db) {
     },
 
     async attachSession(key, token, session) {
-      await db.query(`
+      const result = await db.query(`
         UPDATE drivefx.transient SET value = value || jsonb_build_object('session', $3::text)
         WHERE key = $1 AND value->>'token' = $2 AND expires_at > statement_timestamp()
+          AND (value->>'session' IS NULL OR value->>'session' = $3)
       `, [key, token, session]);
+      return result.rowCount === 1;
+    },
+
+    async updateUnexposedCheckout(key, previous, next, ttl = null) {
+      const result = await db.query(`
+        UPDATE drivefx.transient SET value = $3,
+          expires_at = CASE WHEN $4::integer IS NULL THEN expires_at
+            ELSE statement_timestamp() + $4::integer * interval '1 second' END
+        WHERE key = $1 AND value = $2 AND expires_at > statement_timestamp() AND value->>'session' IS NULL
+      `, [key, JSON.stringify(previous), JSON.stringify(next), ttl]);
+      return result.rowCount === 1;
     },
 
     async licenses() {

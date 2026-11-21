@@ -1,6 +1,8 @@
 // In-memory stand-ins used ONLY by tests: a store with the same interface as server/store.js and a fake Stripe API.
 import { createHmac } from 'node:crypto';
 import { handle } from '../server/handler.js';
+import { deviceMetadata } from '../server/payments.js';
+import { PLANS } from '../server/stripe.js';
 
 export function memoryStore() {
   const m = new Map(), locks = new Map();
@@ -28,7 +30,15 @@ export function memoryStore() {
       },
       async attachSession(key, token, session) {
         const row = live(key);
-        if (row?.v.token === token) entries.set(key, { ...row, v: { ...row.v, session } });
+        if (row?.v.token !== token || (row.v.session && row.v.session !== session)) return false;
+        entries.set(key, { ...row, v: { ...row.v, session } });
+        return true;
+      },
+      async updateUnexposedCheckout(key, previous, next, ttl = null) {
+        const row = live(key);
+        if (!row || row.v.session || JSON.stringify(row.v) !== JSON.stringify(previous)) return false;
+        entries.set(key, { v: next, exp: ttl === null ? row.exp : Date.now() + ttl * 1000 });
+        return true;
       },
       async licenses() {
         return [...entries.keys()].filter(k => k.startsWith('lic:')).map(k => ({ id: k.slice(4), ...live(k).v }));
@@ -107,12 +117,15 @@ export function fakeStripe() {
       if (!st.attempts[key]) {
         const id = 'cs_' + Object.keys(st.sessions).length;
         const url = 'https://checkout.stripe.com/c/' + id;
-        st.sessions[id] = { id, status: 'open', url };
+        st.sessions[id] = { id, status: 'open', url, expires_at: Number(body.expires_at) };
         st.attempts[key] = { ...st.sessions[id] };
       }
       return ok(st.attempts[key]);
     }
-    if (p.startsWith('/checkout/sessions/')) return ok(st.sessions[p.split('/').pop()]);
+    if (p.startsWith('/checkout/sessions/')) {
+      const session = st.sessions[p.split('/').pop()];
+      return session ? ok(session) : err(404, 'resource_missing', 'no');
+    }
     if (p === '/invoice_payments') {
       const invoice = u.searchParams.get('invoice');
       const sub = Object.values(st.subs).find(s => invoiceFor(s)?.id === invoice);
@@ -132,8 +145,8 @@ export function fakeStripe() {
     }
     if ((m = p.match(/^\/payment_intents\/(.+)$/))) {
       const pi = st.pis[m[1]], charge = pi && st.charges[pi.charge];
-      return pi ? ok({ id: m[1], customer: charge?.customer, status: 'succeeded', amount_received: 4999,
-        metadata: { app: 'drivefx', integration: 'managed_v1', device: 'DFX-AAAA-0001', plan: 'lifetime' }, ...pi, latest_charge: charge }) :
+      return pi ? ok({ id: m[1], customer: charge?.customer, status: 'succeeded', currency: 'usd', amount_received: 4999,
+        metadata: testMetadata('DFX-AAAA-0001', 'lifetime'), ...pi, latest_charge: charge }) :
         err(404, 'resource_missing', 'no');
     }
     if ((m = p.match(/^\/charges\/(.+)$/))) return ok(st.charges[m[1]]);
@@ -158,4 +171,19 @@ export function app(over = {}) {
     return call('POST', '/stripe-webhook', { raw: tamper ? raw + ' ' : raw, headers: { 'Stripe-Signature': `t=${t},v1=${sig}` } });
   };
   return { store, stripe, env, call, j, admin, event, hook };
+}
+
+export function testMetadata(device, plan, price = 'price_' + plan[0], currency = 'usd', amount = PLANS[plan].amount) {
+  return deviceMetadata(device, plan, price, currency, amount);
+}
+
+export function lifetimeEvent(a, payment, customer = 'cus_1', device = 'DFX-AAAA-0001', options = {}) {
+  const metadata = options.metadata ?? testMetadata(device, 'lifetime');
+  const id = 'cs_paid_' + payment;
+  const shape = { id, status: 'complete', mode: 'payment', payment_status: 'paid',
+    payment_intent: payment, customer, client_reference_id: device, metadata };
+  const item = { price: { id: metadata.price }, quantity: 1, currency: metadata.currency, amount_total: Number(metadata.amount) };
+  a.stripe.sessions[id] = { ...shape, currency: metadata.currency, amount_total: item.amount_total,
+    line_items: { data: [item], has_more: false }, ...(options.session || {}) };
+  return a.event(options.type ?? 'checkout.session.completed', shape);
 }

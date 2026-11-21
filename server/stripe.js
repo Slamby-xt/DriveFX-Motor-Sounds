@@ -38,14 +38,38 @@ export async function sx(c, method, path, params, idempotencyKey) {
     body: get || !qs ? undefined : qs,
     signal: AbortSignal.timeout(5000),
   });
-  const j = await r.json();
   if (!r.ok) {
+    const j = await r.json().catch(() => null);
     const e = new Error('Stripe request failed');
     e.status = r.status;
-    e.code = j.error?.code;
+    e.code = j?.error?.code;
+    e.param = j?.error?.param;
     throw e;
   }
-  return j;
+  return r.json();
+}
+
+// Only known protocol fields are safe to log. Stripe's messages can contain
+// input values, credentials, object IDs, and customer data.
+const diagnosticCodes = new Set([
+  'account_invalid', 'api_error', 'idempotency_key_in_use', 'invalid_canceled_subscription_fields',
+  'parameter_invalid_empty', 'parameter_invalid_integer', 'parameter_unknown', 'permission_denied',
+  'rate_limit', 'resource_missing', 'secret_key_required',
+]);
+const diagnosticParams = new Set([
+  'adaptive_pricing', 'automatic_tax', 'billing_address_collection', 'cancel_at_period_end',
+  'consent_collection', 'consent_collection[terms_of_service]', 'currency', 'custom_text',
+  'customer_creation', 'expires_at', 'expand', 'invoice_creation', 'line_items',
+  'line_items[0][price]', 'lookup_keys', 'managed_payments', 'managed_payments[enabled]',
+  'metadata', 'payment_intent_data', 'payment_method_types', 'subscription_data',
+]);
+export function stripeDiagnostic(error) {
+  if (!Number.isInteger(error?.status) || error.status < 400 || error.status > 599) return {};
+  return {
+    stripeStatus: error.status,
+    ...(error.code ? { stripeCode: diagnosticCodes.has(error.code) ? error.code : 'other' } : {}),
+    ...(error.param ? { stripeParam: diagnosticParams.has(error.param) ? error.param : 'other' } : {}),
+  };
 }
 
 export function verifyPrice(price, plan) {

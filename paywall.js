@@ -1,6 +1,6 @@
 /* DriveFX paywall.
    Free: 5 cars and 5 minutes of engine time per device.  Pro (monthly, yearly or lifetime): every car, no time limit.
-   A Pro license belongs to the device ID (DFX-XXXX-XXXX) that lives in this browser; the license server (worker/index.js) knows which IDs are Pro.
+   A Pro license belongs to the device ID (DFX-XXXX-XXXX) that lives in this browser; the license server knows which IDs are Pro.
    The free minutes are also counted on the server, by device ID AND by a fingerprint of the device plus its network, so
    clearing cookies or opening a private window does not give a fresh trial.
    Payments: Stripe Checkout, created by the license server (GET /go). Prices come from Stripe (GET /prices) in USD, EUR or GBP.
@@ -8,7 +8,7 @@
 (() => {
   'use strict';
   // ======== SETTINGS ========
-  const TRIAL_SECONDS = 5 * 60;                 // free engine time per device (keep equal to TRIAL_SECONDS in worker/index.js)
+  const TRIAL_SECONDS = 5 * 60;                 // free engine time per device (keep equal to TRIAL_SECONDS in server/handler.js)
   const API = location.port === '5173' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? 'http://127.0.0.1:3000' : location.origin; // same origin as the site (Vercel serves both); a plain local static server uses `vercel dev` on :3000, never the live server
   const OFFLINE_GRACE_DAYS = 7;                 // keep a known subscription working this long if the server can't be reached
   const SYNC_EVERY = 15;                        // seconds of engine time between trial syncs with the server

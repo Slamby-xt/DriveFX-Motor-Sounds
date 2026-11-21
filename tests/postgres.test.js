@@ -3,9 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { Pool } from 'pg';
-import { app } from './helpers.js';
+import { app, lifetimeEvent, testMetadata } from './helpers.js';
 import { getStore, postgresStore } from '../server/store.js';
-import { deviceMetadata } from '../server/payments.js';
 
 const ownerUrl = process.env.DRIVEFX_TEST_DATABASE_URL;
 const migration = new URL('../supabase/migrations/202611210001_drivefx.sql', import.meta.url);
@@ -24,6 +23,9 @@ test('DriveFX migration and concurrent writes on real Postgres', { skip: !ownerU
 
   await owner.query(`
     CREATE ROLE anon NOLOGIN;
+    CREATE ROLE authenticated NOLOGIN;
+    CREATE ROLE service_role NOLOGIN;
+    ALTER DEFAULT PRIVILEGES GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO anon,authenticated,service_role;
     CREATE TABLE public.not_drivefx (x integer);
     CREATE SCHEMA other_app;
     CREATE TABLE other_app.secret (value text);
@@ -50,11 +52,15 @@ test('DriveFX migration and concurrent writes on real Postgres', { skip: !ownerU
     ]) {
       await assert.rejects(pool.query(sql), { code: '42501' });
     }
-    const anon = await owner.query(`
-      SELECT has_schema_privilege('anon', 'drivefx', 'USAGE') AS usg,
-             has_table_privilege('anon', 'drivefx.records', 'SELECT,INSERT,UPDATE,DELETE') AS data
+    const api = await owner.query(`
+      SELECT rolname, has_schema_privilege(rolname, 'drivefx', 'USAGE,CREATE') AS schema_access,
+        has_table_privilege(rolname, 'drivefx.records', 'SELECT,INSERT,UPDATE,DELETE') AS table_access,
+        has_table_privilege(rolname, 'drivefx.environment', 'SELECT,INSERT,UPDATE,DELETE') AS environment_access
+      FROM pg_roles WHERE rolname IN ('anon', 'authenticated', 'service_role') ORDER BY rolname
     `);
-    assert.deepEqual(anon.rows[0], { usg: false, data: false });
+    assert.deepEqual(api.rows, ['anon', 'authenticated', 'service_role'].map(rolname => ({
+      rolname, schema_access: false, table_access: false, environment_access: false,
+    })));
     await assert.rejects(getStore({
       DATA_PREFIX: 'sandbox', VERCEL_ENV: 'development',
       DRIVEFX_DATABASE_URL: ownerUrl,
@@ -105,12 +111,9 @@ test('DriveFX migration and concurrent writes on real Postgres', { skip: !ownerU
     };
     const a = app({ store: rollbackStore });
     const pi = 'pi_test_postgres';
-    a.stripe.pis[pi] = { charge: 'ch_test_postgres', metadata: deviceMetadata(oldId, 'lifetime') };
+    a.stripe.pis[pi] = { charge: 'ch_test_postgres', metadata: testMetadata(oldId, 'lifetime') };
     a.stripe.charges.ch_test_postgres = { id: 'ch_test_postgres', payment_intent: pi, customer: 'cus_test' };
-    const ev = a.event('checkout.session.completed', {
-      mode: 'payment', payment_status: 'paid', payment_intent: pi, customer: 'cus_test',
-      client_reference_id: oldId, metadata: deviceMetadata(oldId, 'lifetime'),
-    });
+    const ev = lifetimeEvent(a, pi, 'cus_test', oldId);
     assert.equal((await a.hook(ev)).status, 500);
     for (const key of ['ev:' + ev.id, 'pi:' + pi, 'lic:' + oldId]) assert.equal(await store.get(key), null);
     assert.deepEqual(await store.customerDevices('cus_test'), []);
@@ -128,4 +131,66 @@ test('DriveFX migration and concurrent writes on real Postgres', { skip: !ownerU
     const outcome = await a.j(await a.call('GET', '/status?id=' + newId));
     assert.equal(outcome.plan, 'lifetime');
   });
+  await t.test('unexposed Checkout refresh and session attachment use a database fence', async () => {
+    const key = 'checkout:test_fence';
+    const old = { token: 'previous', expires: 100 };
+    const fresh = { token: 'fresh', expires: 200 };
+    await store.set(key, old, { ex: 20 });
+    const writers = await Promise.all([
+      store.updateUnexposedCheckout(key, old, fresh, 2700),
+      store.updateUnexposedCheckout(key, old, { token: 'competing', expires: 200 }, 2700),
+    ]);
+    assert.equal(writers.filter(Boolean).length, 1);
+    const winner = await store.get(key);
+    assert.equal(await store.attachSession(key, old.token, 'cs_stale'), false);
+    assert.equal(await store.attachSession(key, winner.token, 'cs_current'), true);
+    assert.equal(await store.updateUnexposedCheckout(key, { ...winner, session: 'cs_current' }, fresh, 2700), false);
+    const expiry = await owner.query("SELECT extract(epoch FROM expires_at - now()) AS ttl FROM drivefx.transient WHERE key = $1", [key]);
+    assert.ok(Number(expiry.rows[0].ttl) > 2600);
+  });
+
+  await t.test('subscription renewals, exact reversal and billing retry use persisted Postgres state', async () => {
+    const a = app({ store });
+    const device = 'DFX-TEST-0003';
+    const id = 'sub_postgres';
+    const customer = 'cus_postgres';
+    const time = Math.floor(Date.now() / 1000);
+    function snapshot(end, payment) {
+      a.stripe.subs[id] = {
+        id, customer, status: 'active', currency: 'usd', created: time,
+        metadata: testMetadata(device, 'monthly'),
+        items: { data: [{ price: { id: 'price_m' }, quantity: 1, current_period_end: end }] },
+        invoicePayment: payment,
+      };
+    }
+    const firstEnd = time + 30 * 86400, renewedEnd = time + 60 * 86400;
+    snapshot(firstEnd, 'pi_postgres_first');
+    assert.equal((await a.hook(a.event('invoice.paid', { subscription: id }))).status, 200);
+    assert.equal((await store.get('lic:' + device)).exp, firstEnd + 2 * 86400);
+    snapshot(renewedEnd, 'pi_postgres_renewed');
+    const renewal = a.event('invoice.paid', { subscription: id });
+    a.stripe.failNext = 'api_error';
+    assert.equal((await a.hook(renewal)).status, 500);
+    assert.equal(await store.get('ev:' + renewal.id), null);
+    assert.equal((await a.hook(renewal)).status, 200);
+    for (const payment of ['pi_postgres_first', 'pi_postgres_renewed']) {
+      a.stripe.failBilling = true;
+      const ev = a.event('charge.refunded', { id: 'ch_' + payment, payment_intent: payment, customer, refunded: true });
+      const response = await a.hook(ev);
+      if (payment.endsWith('first')) {
+        assert.equal(response.status, 200);
+        assert.equal((await store.get('lic:' + device)).exp, renewedEnd + 2 * 86400);
+      } else {
+        assert.equal(response.status, 500);
+        assert.equal((await store.get('lic:' + device)).ended, 'refund');
+        assert.equal((await store.get('billing:' + ev.id)).operation, 'cancel');
+        assert.equal(await store.get('ev:' + ev.id), true);
+        a.stripe.failBilling = false;
+        assert.equal((await a.hook(ev)).status, 200);
+        assert.equal(await store.get('billing:' + ev.id), null);
+        assert.deepEqual(a.stripe.deleted, [id]);
+      }
+    }
+  });
+
 });

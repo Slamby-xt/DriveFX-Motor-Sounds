@@ -1,7 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import { isIP } from 'node:net';
 import { deviceMetadata, finishBilling, ID_RE, isActive, webhook } from './payments.js';
-import { CURRENCIES, getPrices, PLANS, sx } from './stripe.js';
+import { CURRENCIES, getPrices, PLANS, stripeDiagnostic, sx } from './stripe.js';
 import { checkIsolation } from './store.js';
 
 // DriveFX license server for Vercel (Node.js Functions) and Supabase Postgres.
@@ -84,7 +84,10 @@ async function prices(c) {
     const plans = {}; for (const k of Object.keys(p)) plans[k] = p[k].amounts;
     const country = countryOf(c.req);
     return json(c, { currency: currencyFor(country), country, plans });
-  } catch { return json(c, { error: 'prices unavailable' }, 503); }
+  } catch (error) {
+    console.error('DriveFX prices unavailable', stripeDiagnostic(error));
+    return json(c, { error: 'prices unavailable' }, 503);
+  }
 }
 
 function checkoutEnabled(env) {
@@ -96,33 +99,94 @@ function checkoutEnabled(env) {
 const unavailable = () => page('DriveFX', '<h1>Payments are temporarily unavailable</h1><p>Please try again in a few minutes.</p>', 503);
 const PROCESSING = '<h1>Payment confirmation pending</h1><p>Open DriveFX to check your Pro status.</p>';
 
+const CHECKOUT_TTL = 2700;
+const MIN_CREATE_TIME = 31 * 60;
+const CHECKOUT_RETRY_DELAY = 30;
+const stripeSessionId = id => typeof id === 'string' && /^cs_[a-zA-Z0-9_]{1,252}$/.test(id);
+const currentTime = () => Math.floor(Date.now() / 1000);
+const newCheckoutAttempt = now => ({ token: crypto.randomUUID(), expires: now + CHECKOUT_TTL });
+
+async function createCheckoutSession(c, params, attempt) {
+  const waits = [150, 300, 600, 900];
+  for (let i = 0; ; i++) {
+    if (attempt.expires - currentTime() < MIN_CREATE_TIME) {
+      console.warn('DriveFX checkout session rejected', { reason: 'insufficient-create-window' });
+      return null;
+    }
+    try {
+      const session = await sx(c, 'POST', '/checkout/sessions', { ...params, expires_at: attempt.expires }, attempt.token);
+      if (stripeSessionId(session.id) && session.expires_at === attempt.expires) return session.id;
+      console.warn('DriveFX checkout session rejected', { reason: 'create-response' });
+      return null;
+    } catch (error) {
+      if (error.code !== 'idempotency_key_in_use' || i === waits.length) throw error;
+      await new Promise(resolve => setTimeout(resolve, waits[i]));
+    }
+  }
+}
+
 async function checkoutSession(c, params, now) {
-  // Compatible browser and QR attempts use the same persisted Stripe request,
-  // including the expiry timestamp. Stripe serializes concurrent creates.
+  // Compatible browser and QR attempts share persisted parameters and a
+  // Stripe idempotency key. A saved session must exist before any redirect.
   const fingerprint = createHash('sha256').update(JSON.stringify(params)).digest('hex');
   const key = 'checkout:' + fingerprint;
-  const proposed = { token: crypto.randomUUID(), expires: now + 2700 };
-  await c.store.set(key, proposed, { nx: true, ex: 2700 });
-  const attempt = await c.store.get(key);
-  if (!attempt) return null;
-  let sessionId = attempt.session;
-  if (!sessionId) {
-    const request = { ...params, expires_at: attempt.expires };
-    for (let i = 0; i < 4; i++) {
-      try {
-        const session = await sx(c, 'POST', '/checkout/sessions', request, attempt.token);
-        sessionId = session.id;
-        break;
-      } catch (e) {
-        if (e.code !== 'idempotency_key_in_use' || i === 3) throw e;
-        await new Promise(resolve => setTimeout(resolve, 100 * (i + 1)));
+  await c.store.set(key, newCheckoutAttempt(now), { nx: true, ex: CHECKOUT_TTL });
+  for (let i = 0; i < 4; i++) {
+    const attempt = await c.store.get(key);
+    if (!attempt) return null;
+    let sessionId = attempt.session;
+    if (!sessionId) {
+      const time = currentTime();
+      if (attempt.retryAt > time) return null;
+      if (attempt.retryAt || attempt.expires - time < MIN_CREATE_TIME) {
+        // No browser has been sent to this attempt. Safely start a fresh
+        // window even if a superseded Stripe request is still in flight.
+        await c.store.updateUnexposedCheckout(key, attempt, newCheckoutAttempt(time), CHECKOUT_TTL);
+        continue;
       }
+      try {
+        sessionId = await createCheckoutSession(c, params, attempt);
+      } catch (error) {
+        if (!(error.status >= 500)) throw error;
+        // Stripe can cache a 5xx. Rotate once with the same expiry, then
+        // pause before allowing a fresh window if the second key also fails.
+        if (attempt.recovered) {
+          const paused = { ...attempt, retryAt: currentTime() + CHECKOUT_RETRY_DELAY };
+          await c.store.updateUnexposedCheckout(key, attempt, paused);
+          throw error;
+        }
+        const retry = { ...attempt, token: crypto.randomUUID(), recovered: true };
+        if (await c.store.updateUnexposedCheckout(key, attempt, retry)) {
+          console.warn('DriveFX recovering checkout create', stripeDiagnostic(error));
+        }
+        continue;
+      }
+      if (!sessionId) {
+        if (attempt.expires - currentTime() < MIN_CREATE_TIME) continue;
+        return null;
+      }
+      if (!(await c.store.attachSession(key, attempt.token, sessionId))) continue;
     }
-    if (typeof sessionId !== 'string' || !/^cs_[a-zA-Z0-9_]+$/.test(sessionId)) return null;
-    await c.store.attachSession(key, attempt.token, sessionId);
+    const current = await sx(c, 'GET', '/checkout/sessions/' + sessionId);
+    const fence = await c.store.get(key);
+    if (fence?.token !== attempt.token || fence.session !== sessionId || attempt.expires <= currentTime()
+        || current.id !== sessionId || current.expires_at !== attempt.expires) {
+      console.warn('DriveFX checkout session rejected', { reason: 'stale-session' });
+      return null;
+    }
+    return current;
   }
-  // A cached idempotent response retains its original state after completion.
-  return sx(c, 'GET', '/checkout/sessions/' + sessionId);
+  console.warn('DriveFX checkout session rejected', { reason: 'attempt-changed' });
+  return null;
+}
+
+function hostedCheckoutUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.origin === 'https://checkout.stripe.com' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 }
 
 async function go(c, url, now) {
@@ -142,7 +206,7 @@ async function go(c, url, now) {
     const price = (await getPrices(c))[plan];
     const sub = plan !== 'lifetime';
     const desc = `${PLANS[plan].name} · ID ${id}`;
-    const metadata = deviceMetadata(id, plan);
+    const metadata = deviceMetadata(id, plan, price.id, cur, price.amounts[cur]);
     const self = selfOrigin(c.req, c.env);
     const p = {
       mode: sub ? 'subscription' : 'payment',
@@ -167,12 +231,16 @@ async function go(c, url, now) {
 
     const session = await checkoutSession(c, p, now);
     if (session?.status === 'complete') return page('DriveFX', PROCESSING);
-    if (session?.status !== 'open' || !session.url || new URL(session.url).origin !== 'https://checkout.stripe.com') return unavailable();
+    if (!session) return unavailable();
+    if (session.status !== 'open' || !hostedCheckoutUrl(session.url)) {
+      console.warn('DriveFX checkout redirect rejected', { reason: session.status === 'open' ? 'unexpected-host' : 'session-not-open' });
+      return unavailable();
+    }
     return new Response(null, { status: 303, headers: {
       Location: session.url, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
     } });
-  } catch {
-    console.error('DriveFX checkout could not be started');
+  } catch (error) {
+    console.error('DriveFX checkout could not be started', stripeDiagnostic(error));
     return unavailable();
   }
 }
@@ -197,7 +265,7 @@ async function portal(c) { // Stripe's own login page for the billing portal: it
       portalCache = { at: Date.now(), url: cf.login_page.url, key: c.env.STRIPE_KEY };
     }
     return json(c, { url: portalCache.url });
-  } catch { console.error('DriveFX billing portal could not be loaded'); return json(c, { error: 'Billing is not available right now.' }, 502); }
+  } catch (error) { console.error('DriveFX billing portal could not be loaded', stripeDiagnostic(error)); return json(c, { error: 'Billing is not available right now.' }, 502); }
 }
 
 // ---- free-trial ledger ----
@@ -326,7 +394,10 @@ export async function handle(req, deps) {
             }
           }
           return json(c, { items, now });
-        } catch { return json(c, { error: 'Stripe lookup failed.' }, 502); }
+        } catch (error) {
+          console.error('DriveFX customer lookup failed', stripeDiagnostic(error));
+          return json(c, { error: 'Stripe lookup failed.' }, 502);
+        }
       }
 
       if (req.method === 'POST') {
@@ -354,7 +425,7 @@ export async function handle(req, deps) {
             if (cur?.sub) {
               const p = await c.store.get('sub:' + cur.sub);
               if (p) await c.store.set('sub:' + cur.sub, { ...p, revoked: true, revision: crypto.randomUUID() });
-              if (c.env.STRIPE_KEY) await c.store.set(job, { sub: cur.sub, operation: 'cancel' });
+              if (c.env.STRIPE_KEY) await c.store.set(job, { sub: cur.sub, operation: 'cancel', queuedAt: now });
             }
             await c.store.del('lic:' + id);
           });
@@ -377,8 +448,8 @@ export async function handle(req, deps) {
       }
     }
     return json(c, { error: 'not found' }, 404);
-  } catch {
-    console.error('DriveFX request failed', route);
+  } catch (error) {
+    console.error('DriveFX request failed', { route, ...stripeDiagnostic(error) });
     return json(c, { error: 'server error' }, 500);
   }
 }
