@@ -29,4 +29,4 @@ Run locally: `python -m http.server 5173` and open http://localhost:5173
 
 The admin panel still works for manual grants and revokes. `terms.html` is a plain-language draft: read it before going live.
 
-Hosting: Vercel (site + `api/` function), data in Upstash Redis; see `docs/VERCEL.md`. License changes run under a Redis lock and webhook events are claimed atomically, so concurrent events cannot double-grant. Still true: buying two subscriptions in parallel from two open checkout pages bills both (refund one by hand in Stripe, then use the admin panel if needed). `worker/` is the retired Cloudflare Worker, kept only for rollback.
+Hosting: Vercel (site + `api/` function), data in Upstash Redis; see `docs/VERCEL.md`. License changes run under a Redis lock and webhook events are claimed atomically, so concurrent events cannot double-grant. Still true: buying two subscriptions in parallel from two open checkout pages bills both (refund one by hand in Stripe, then use the admin panel if needed).

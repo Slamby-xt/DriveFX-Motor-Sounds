@@ -33,7 +33,7 @@ node tools/set-password.mjs
 ## Откат
 * DNS: вернуть записи из колонки «Было».
 * Деплой: Vercel → Deployments → предыдущий → Promote to Production (или `npx vercel rollback`).
-* Старый Cloudflare Worker и GitHub Pages продолжают работать, их никто не отключал.
+* GitHub Pages отключён; старый Cloudflare Worker `drivefx-licenses` (если ещё не удалён) не используется сайтом.
 
 ## Перед merge в main
 Ветка `vercel-migration` не отправлена на GitHub. Отправляйте и сливайте в `main` только после переключения DNS: `paywall.js` обращается к API на том же домене, а на GitHub Pages этого API нет.

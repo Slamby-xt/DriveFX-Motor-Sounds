@@ -10,9 +10,8 @@ Static site + license/payment API on Vercel, data in Upstash Redis (a database c
 | `server/handler.js` | all endpoint logic (ported from the old Cloudflare Worker, same behaviour) |
 | `server/store.js` | Redis wrapper: key prefix, atomic counters, lock, scan |
 | `tests/` | `npm test` (in-memory store + fake Stripe) |
-| `worker/` | the OLD Cloudflare Worker, kept only for rollback; not deployed, not public |
 
-Never public: `server/ api/ tools/ worker/ tests/ _ad/ docs/` and any `.env*` file (the build script copies an explicit allow-list into `public/`).
+Never public: `server/ api/ tools/ tests/ _ad/ docs/` and any `.env*` file (the build script copies an explicit allow-list into `public/`).
 
 ## Environment variables (server-only)
 `STRIPE_KEY`, `STRIPE_WEBHOOK_SECRET`, `ADMIN_TOKEN`, `TRIAL_PEPPER`, `DATA_PREFIX` (`prod` | `sandbox`), optional `TERMS_CONSENT`, `TAX`; Redis: `KV_REST_API_URL`, `KV_REST_API_TOKEN` (+ `KV_URL`, `REDIS_URL`, `KV_REST_API_READ_ONLY_TOKEN`, injected by the integration). Placeholders in `.env.example`.
@@ -57,4 +56,4 @@ The Free/Pro gating runs in downloaded JavaScript (`paywall.js`) and works offli
 ## Deploy / rollback
 * Deploy: `npx vercel deploy --prod` (or push to `main`, the project is connected to GitHub).
 * Roll back a deployment: Vercel dashboard > Deployments > previous one > Promote, or `npx vercel rollback`.
-* DNS rollback: see the table in the migration report (previous values: apex `A` 185.199.108.153 / .109.153 / .110.153 / .111.153, `www` `CNAME` slamby-xt.github.io.). GitHub Pages and the Cloudflare Worker stay up until removed by hand.
+* DNS rollback: see the table in the migration report (previous values: apex `A` 185.199.108.153 / .109.153 / .110.153 / .111.153, `www` `CNAME` slamby-xt.github.io.).
