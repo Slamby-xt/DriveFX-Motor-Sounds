@@ -1,4 +1,4 @@
-// Copies ONLY the intended website files into public/ (what Vercel serves). Everything else in the repo (server/, api/, tools/, worker/, _ad/, ...) stays private.
+// Copies ONLY the intended website files into public/ (what Vercel serves). Everything else in the repo (server/, api/, tools/, supabase/, _ad/, ...) stays private.
 import { cpSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';

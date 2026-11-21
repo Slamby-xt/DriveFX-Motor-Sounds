@@ -1,14 +1,14 @@
 /* DriveFX paywall.
    Free: 5 cars and 5 minutes of engine time per device.  Pro (monthly, yearly or lifetime): every car, no time limit.
-   A Pro license belongs to the device ID (DFX-XXXX-XXXX) that lives in this browser; the license server (worker/index.js) knows which IDs are Pro.
+   A Pro license belongs to the device ID (DFX-XXXX-XXXX) that lives in this browser; the license server knows which IDs are Pro.
    The free minutes are also counted on the server, by device ID AND by a fingerprint of the device plus its network, so
    clearing cookies or opening a private window does not give a fresh trial.
    Payments: Stripe Checkout, created by the license server (GET /go). Prices come from Stripe (GET /prices) in USD, EUR or GBP.
-   After paying, the Stripe webhook marks the ID as Pro and this window unlocks by itself. Cancel / card / invoices: Stripe's billing portal (POST /portal). */
+   After paying, the Stripe webhook marks the ID as Pro and this window unlocks by itself. Cancel / card / invoices: Link or the Stripe billing portal (POST /portal). */
 (() => {
   'use strict';
   // ======== SETTINGS ========
-  const TRIAL_SECONDS = 5 * 60;                 // free engine time per device (keep equal to TRIAL_SECONDS in worker/index.js)
+  const TRIAL_SECONDS = 5 * 60;                 // free engine time per device (keep equal to TRIAL_SECONDS in server/handler.js)
   const API = location.port === '5173' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? 'http://127.0.0.1:3000' : location.origin; // same origin as the site (Vercel serves both); a plain local static server uses `vercel dev` on :3000, never the live server
   const OFFLINE_GRACE_DAYS = 7;                 // keep a known subscription working this long if the server can't be reached
   const SYNC_EVERY = 15;                        // seconds of engine time between trial syncs with the server
@@ -244,7 +244,7 @@
     setTimeout(() => $('pwCopy').textContent = 'COPY', 1800);
   };
 
-  // Stripe's billing portal (cancel, change card, invoices). Stripe asks for the email used to pay and emails a sign-in link,
+  // Link or the Stripe billing portal handles subscription changes and invoices. Sign-in uses the purchase email,
   // so this works for everyone who paid, including after a subscription has lapsed, and the device ID alone never opens anyone's billing.
   async function openBilling(btn) {
     const msg = (t, cls) => { $('pwMsg').className = 'pw-msg ' + (cls || ''); $('pwMsg').textContent = t; };

@@ -1,39 +1,8 @@
-# Что осталось сделать вам (по порядку)
+# DriveFX release checklist
 
-Сайт и API уже задеплоены на Vercel (`https://drivefx.vercel.app`), база Upstash Redis (Free) подключена. Платежи выключены, пока нет ключей Stripe: окно оплаты просто не показывает кнопку, как и раньше.
+Follow the [Vercel, Supabase and Managed Payments runbook](VERCEL.md) for staging, production setup and rollback. The legacy Upstash provisioning and automatic live Stripe deploy are retired.
 
-## 1. Пароль админки (1 минута)
-```
-node tools/set-password.mjs
-```
-Введите длинный случайный пароль (32+ символа). Затем: `npx vercel deploy --prod --yes`.
-
-## 2. Stripe (1–2 минуты, когда появится доступ)
-1. Stripe Dashboard → Developers → API keys → **Create restricted key** с названием DriveFX. Права: Checkout Sessions (Write), Customers (Read), Subscriptions (Write), Payment Intents (Read), Charges (Read), Prices (Read), Billing Portal Configurations (Read). Скопируйте ключ `rk_live_...`.
-2. В терминале: `stripe login`, затем
-   ```
-   node tools/finish-stripe.mjs --live
-   ```
-   Скрипт спросит ключ (ввод скрыт), создаст три товара с ценами в USD/EUR/GBP, billing portal и вебхук `https://drivefx.pro/stripe-webhook`, сам запишет `STRIPE_KEY` и `STRIPE_WEBHOOK_SECRET` в Vercel Production и задеплоит.
-3. Stripe Dashboard → Settings → Public details: укажите ссылку на условия `https://drivefx.pro/terms.html` (нужна для галочки согласия).
-4. Для теста без реальных денег: то же без `--live` с тестовым ключом `rk_test_...` (ключи попадут в Preview/Development). Тестовые данные хранятся отдельно (`DATA_PREFIX=sandbox`).
-
-## 3. DNS в One.com (переключение домена)
-Зайдите в One.com → Domains → drivefx.pro → DNS settings. Менять только две записи сайта:
-
-| Запись | Было (сохраните для отката) | Стало |
-|---|---|---|
-| `drivefx.pro` (A) | 185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153 | **216.198.79.1** и **64.29.17.1** |
-| `www` (CNAME) | slamby-xt.github.io. | **92f2b06ead3f3988.vercel-dns-017.com.** |
-
-Остальные записи (почта/MX, TXT и прочие) не трогайте. Nameservers One.com оставьте. Через 5–60 минут Vercel сам выпустит HTTPS. Проверка: `npx vercel domains verify drivefx.pro`.
-
-Откройте сайт после переключения и проверьте, что в окне оплаты нет ошибок. `www.drivefx.pro` автоматически перенаправляется на `https://drivefx.pro` с сохранением пути и параметров.
-
-## Откат
-* DNS: вернуть записи из колонки «Было».
-* Деплой: Vercel → Deployments → предыдущий → Promote to Production (или `npx vercel rollback`).
-* GitHub Pages отключён; старый Cloudflare Worker `drivefx-licenses` (если ещё не удалён) не используется сайтом.
-
-## Перед merge в main
-Ветка `vercel-migration` не отправлена на GitHub. Отправляйте и сливайте в `main` только после переключения DNS: `paywall.js` обращается к API на том же домене, а на GitHub Pages этого API нет.
+- [ ] The dedicated DriveFX sandbox, staging Supabase project and COHEX Vercel preview pass the checkout, webhook, renewal, refund, portal and privacy checks.
+- [ ] The production Supabase database and runtime role are isolated. Apply the migration and verify transient data cleanup.
+- [ ] The owner approves the production cutover. Confirm assignment of both domains and verify the canonical redirect, API and signed webhook with checkout paused.
+- [ ] Verify Stripe's country restriction on the dedicated account, the advertised currency and tax-inclusive totals, and customer support details before separately approving public sales.
