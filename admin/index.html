@@ -31,7 +31,7 @@ td button{padding:6px 10px;border-radius:8px;border:1px solid var(--line);backgr
 .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.lock{padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:#0a1020;color:var(--tx);font:700 12px inherit;letter-spacing:.12em;cursor:pointer}
 .bar{display:flex;gap:8px;margin-bottom:10px}.bar input{font-size:15px;padding:10px}.bar button{padding:0 14px;border-radius:10px;border:1px solid var(--line);background:#0a1020;color:var(--tx);cursor:pointer;font:700 12px inherit}
 </style></head><body><div class="w">
-<div class="top"><div><h1>DRIVE<b>FX</b> · ADMIN</h1><p class="sub" id="sub">Locked.</p></div><button class="lock hide" id="lock">LOCK</button></div>
+<div class="top"><div><h1>DRIVE<b>FX</b> · ADMIN</h1><p class="sub" id="sub">Logged out.</p></div><button class="lock hide" id="lock">LOG OUT</button></div>
 
 <div class="card" id="gate">
   <label for="pw">PASSWORD</label>
@@ -45,7 +45,7 @@ td button{padding:6px 10px;border-radius:8px;border:1px solid var(--line);backgr
       </svg>
     </button>
   </div>
-  <button class="go" id="unlock">UNLOCK</button><div class="msg" id="gmsg"></div>
+  <button class="go" id="unlock">LOG IN</button><div class="msg" id="gmsg"></div>
 </div>
 
 <div id="app" class="hide">
@@ -103,7 +103,7 @@ async function resume() {
   $('#gate').classList.add('hide');
   $('#app').classList.remove('hide');
   $('#lock').classList.remove('hide');
-  $('#sub').textContent = 'Unlocked. Locks itself after 10 minutes of inactivity.';
+  $('#sub').textContent = 'Logged in. Logs out after 10 minutes of inactivity.';
   $('#id').focus();
   bump();
 }
@@ -135,7 +135,7 @@ function lock() {
   $('#app').classList.add('hide');
   $('#lock').classList.add('hide');
   $('#gate').classList.remove('hide');
-  $('#sub').textContent = 'Locked.';
+  $('#sub').textContent = 'Logged out.';
   $('#gmsg').textContent = '';
   $('#pw').focus();
 }
@@ -150,7 +150,7 @@ async function signOut() {
     await api('/session', undefined, { method: 'DELETE' });
     try { sessionStorage.removeItem(SIGN_OUT_PENDING); } catch {}
   } catch {
-    $('#gmsg').textContent = 'Could not end the server session. Refresh to retry or sign in again.';
+    $('#gmsg').textContent = 'Could not log out. Refresh to retry or log in again.';
   } finally {
     button.disabled = false;
   }
