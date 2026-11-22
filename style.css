@@ -98,18 +98,33 @@ body.solo .notice.err{bottom:auto;top:6px}
 .notice.hidden{display:none}
 
 /* test drive dock (TEST DRIVE mode only) */
-.test-box{display:grid;grid-template-columns:minmax(84px,.9fr) minmax(0,2.6fr) minmax(84px,1.1fr) auto;gap:12px;align-items:center;padding:10px;border-radius:18px;border:1px solid var(--line);background:rgba(8,10,18,.82)}
+.test-box{display:grid;grid-template-columns:minmax(68px,.9fr) minmax(60px,.8fr) minmax(144px,2.6fr) auto;grid-template-areas:"brake gas tspeed sim";gap:clamp(6px,1vw,12px);align-items:center;padding:10px;border-radius:18px;border:1px solid var(--line);background:rgba(8,10,18,.82)}
 .test-box[hidden]{display:none}
-.tspeed{min-width:0}
+.tspeed{grid-area:tspeed;min-width:0}
+.tspeed input{display:block}
+.tspeed input:disabled{opacity:.45;cursor:default}
+.pedal-hint{display:flex;align-items:center;gap:6px;min-height:17px;color:var(--mute);font:600 13px/1.2 var(--f-ui)}
+.pedal-hint::before{content:"";flex:none;width:5px;height:5px;border-radius:50%;background:currentColor}
+.pedal-hint.show-ignition{color:var(--warn)}
+.test-box.engine-ready .pedal-hint::before{background:var(--ok)}
 .tspeed label{display:flex;gap:8px;align-items:baseline;font:600 11px var(--f-display);letter-spacing:.14em;color:var(--mute)}
 .tspeed label b{font-size:20px;color:var(--text)}
-.pedal{height:clamp(56px,8.5vh,76px);border-radius:14px;font:800 14px var(--f-display);letter-spacing:.18em;user-select:none;-webkit-user-select:none;touch-action:none;border:1px solid var(--line);transition:.1s}
-.pedal.brake{color:#ff6b7f;background:rgba(255,59,59,.08);border-color:rgba(255,59,59,.45)}
-.pedal.gas{color:var(--accent);background:rgba(var(--ar),.1);border-color:rgba(var(--ar),.55)}
-.pedal.held{transform:scale(.97);background:var(--accent);color:#05060b;box-shadow:0 0 24px rgba(var(--ar),.6)}
-.pedal.brake.held{background:var(--red);box-shadow:0 0 24px rgba(255,59,59,.6)}
-.sim{display:flex;align-items:center;justify-content:center;gap:10px;height:clamp(56px,8.5vh,76px);padding:0 20px;border-radius:14px;font:700 12px var(--f-display);letter-spacing:.16em;white-space:nowrap;
+.pedal{--pedal-light:var(--accent);position:relative;isolation:isolate;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:7px;min-width:0;height:clamp(64px,9.8vh,88px);padding:6px 4px 7px;border:1px solid var(--line);border-radius:12px;background:radial-gradient(ellipse at 50% 80%,#1b2431,#0b0e16 75%);font:700 10px/1 var(--f-display);letter-spacing:.13em;color:var(--pedal-light);user-select:none;-webkit-user-select:none;touch-action:none}
+.pedal.brake{grid-area:brake;--pedal-light:#ff8292}
+.pedal.gas{grid-area:gas}
+.pedal-face{position:relative;display:block;flex:none;width:32px;max-width:100%;height:calc(100% - 17px);border:1px solid #8e9aab;border-bottom-color:#485569;border-radius:8px 8px 10px 10px;background:linear-gradient(135deg,#d0d9e5,#677489 45%,#b3bfd1 81%,#58667b);box-shadow:0 3px 0 #313d50,0 5px 8px #05070b,inset 0 1px 0 #e3ebf4;transform:perspective(100px) rotateX(11deg);transform-origin:50% 100%;transition:transform .12s,box-shadow .12s}
+.pedal-face::before{content:"";position:absolute;inset:4px;border-radius:4px;background:repeating-linear-gradient(0deg,#19212e 0 3px,#3d4a5c 3px 4px,transparent 4px 8px)}
+.brake .pedal-face{width:62px;height:68%;border-radius:9px 9px 12px 12px}
+.brake .pedal-face::before{inset:4px 5px;background:repeating-linear-gradient(0deg,#19212e 0 4px,#3d4a5c 4px 5px,transparent 5px 9px)}
+.gas .pedal-face::before{background:repeating-linear-gradient(114deg,#19212e 0 3px,#3d4a5c 3px 4px,transparent 4px 8px)}
+.pedal[aria-disabled=true]{color:#bac4d6;cursor:default}
+.pedal[aria-disabled=true] .pedal-face{opacity:.55}
+.pedal.held{border-color:var(--pedal-light)}
+@media (hover:hover){.pedal[aria-disabled=false]:hover{border-color:var(--pedal-light)}}
+.pedal.held .pedal-face{transform:perspective(100px) rotateX(28deg) translateY(2px);box-shadow:0 1px 0 #313d50,0 2px 5px #05070b,inset 0 0 8px var(--pedal-light)}
+.sim{grid-area:sim;display:flex;align-items:center;justify-content:center;gap:10px;height:clamp(56px,8.5vh,76px);padding:0 clamp(8px,1.4vw,20px);border-radius:14px;font:700 clamp(10px,1.05vw,12px) var(--f-display);letter-spacing:.12em;white-space:nowrap;
   color:var(--accent);border:1px dashed rgba(var(--ar),.6);background:rgba(var(--ar),.06);transition:.2s}
+.sim svg{flex:none}
 .sim:hover{background:rgba(var(--ar),.14)}
 .sim.on{background:var(--accent);color:#05060b;border-style:solid;box-shadow:0 0 26px rgba(var(--ar),.55)}
 
@@ -208,12 +223,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 
 /* ---------- other screen shapes ---------- */
-/* narrow landscape screens (small windows, split views): stack the test dock */
+/* Narrow landscape touchscreens: keep the whole test dock in one row. */
 @media (max-width:1100px) and (min-aspect-ratio:1/1){
   .top{gap:10px}.brand-text small{display:none}.modes{width:auto}.modes button{flex:none;padding:0 14px;letter-spacing:.1em}  /* sized by its labels: a fixed width let TEST DRIVE spill out */
   .chips{gap:6px}.chip{padding:0 11px;font-size:10px;letter-spacing:.1em}
-  .test-box{grid-template-columns:1fr 1fr 1.5fr;grid-template-areas:"brake gas sim" "tspeed tspeed tspeed"}
-  .tspeed{grid-area:tspeed}.brake{grid-area:brake}.gas{grid-area:gas}.sim{grid-area:sim}
+  .test-box{grid-template-columns:minmax(60px,.9fr) minmax(54px,.8fr) minmax(132px,2.2fr) minmax(116px,1.1fr)}
+  .tspeed label{gap:4px;font-size:10px;letter-spacing:.08em}
+  .tspeed label b{font-size:18px}
+  .sim{gap:7px;padding:0 8px;line-height:1.3;text-align:left;white-space:normal}
 }
 /* tighter header for the 900-1000px windows that car browsers give (still one row, still with the brand) */
 @media (max-width:1000px) and (min-aspect-ratio:1/1){.top{gap:8px;padding-left:14px;padding-right:14px}.brand{gap:9px}.chip{padding:0 9px}.modes button{padding:0 11px}}
@@ -241,8 +258,11 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   .gauge-box{flex:none;width:100%;height:min(calc(100vw - 2 * var(--pad)),58vh)}
   .side{display:contents}
   .start{order:1}.showcase{order:2}.vol{order:3}
-  .test-box{grid-template-columns:1fr 1fr;grid-template-areas:"tspeed tspeed" "brake gas" "sim sim"}
-  .tspeed{grid-area:tspeed}.brake{grid-area:brake}.gas{grid-area:gas}.sim{grid-area:sim}
+  .test-box{grid-template-columns:minmax(0,1.12fr) minmax(0,.88fr);grid-template-areas:"brake gas" "tspeed sim";padding:8px}
+  .pedal{height:clamp(64px,9vh,80px)}
+  .tspeed label{gap:4px;font-size:10px;letter-spacing:.08em}
+  .tspeed label b{font-size:18px}
+  .sim{height:56px;gap:7px;padding:0 8px;font-size:clamp(10px,2.8vw,11px);line-height:1.3;text-align:left;white-space:normal}
   .photo{aspect-ratio:16/9}
   .car-id h2,.car-id p{min-height:0}
   .chip{padding:0 12px}

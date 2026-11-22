@@ -44,14 +44,17 @@
     car: FIRST_FREE, running: false, mode: 'gps', unit: 'kmh', volume: 100,
     speed: 0, targetSpeed: 0, rpm: 0, gear: 0, throttle: 0, sweepT: 0,
     gps: { state: 'off', acc: null, last: null, lastTime: 0 },
-    keys: { up: false, down: false },
   };
 
   const $ = id => document.getElementById(id);
   const el = {};
   ['gauge','speed','unit','gear','rpm','startBtn','startLabel','chipGps','notice','testBox',
    'testSpeed','testSpeedVal','cars','carName','carDesc','carArt','carIdx','volume','volumeVal',
-   'simBtn','simLabel','gasBtn','brakeBtn','bg','prevCar','nextCar','garage','garageBtn','garageClose','viewBtn','focusName','focusDesc','favBtn'].forEach(id => el[id] = $(id));
+   'simBtn','simLabel','gasBtn','brakeBtn','pedalHint','bg','prevCar','nextCar','garage','garageBtn','garageClose','viewBtn','focusName','focusDesc','favBtn'].forEach(id => el[id] = $(id));
+
+  const pedals = { up: el.gasBtn, down: el.brakeBtn };
+  const pedalInputs = { up: new Set(), down: new Set() };
+  const pedalRates = { up: 60, down: -90 };
 
   const store = {
     get(k) { try { return localStorage.getItem('drivefx.' + k); } catch { return null; } },
@@ -191,7 +194,7 @@
   const appRoot = document.querySelector('.app'); // made inert while the garage is open: nothing behind it can be focused or tapped
   let garageTimer = null;
   const garageIsOpen = () => !el.garage.hidden && !el.garage.classList.contains('closing'); // a closing garage no longer takes over the keyboard
-  function openGarage() { clearTimeout(garageTimer); el.garage.classList.remove('closing'); garageFrom = document.activeElement; el.garage.hidden = false; appRoot.inert = true; const on = el.cars.querySelector('.car.on');
+  function openGarage() { clearPedals(); clearTimeout(garageTimer); el.garage.classList.remove('closing'); garageFrom = document.activeElement; el.garage.hidden = false; appRoot.inert = true; const on = el.cars.querySelector('.car.on');
     // centre the chosen car using layout positions (scrollIntoView would be thrown off while the panel is still zoomed out)
     if (on) { el.cars.scrollTop = on.offsetTop - el.cars.offsetTop - (el.cars.clientHeight - on.offsetHeight) / 2; on.focus({ preventScroll: true }); } else el.garageClose.focus(); }
   // closing plays the entrance backwards (CSS .closing), then hides the garage; the cockpit is usable straight away
@@ -230,6 +233,7 @@
     return g;
   }
   function targetRpm(car, speed, gearIdx, throttle) {
+    if (!S.running && S.mode === 'test') return 0;
     if (S.sweepT < 1.5) { // self-test / ignition sweep
       const t = S.sweepT / 1.5, k = t < 0.5 ? t * 2 : 1 - (t - 0.5) * 2;
       const base = S.running ? car.idle : 0;
@@ -315,6 +319,7 @@
   // name moves to the header. The same button contracts it again. The choice is remembered.
   function setView(v) {
     const solo = v === 'solo';
+    if (solo) clearPedals();
     document.body.classList.toggle('solo', solo); store.set('view', solo ? 'solo' : 'full');
     el.viewBtn.setAttribute('aria-pressed', solo);
     el.viewBtn.setAttribute('aria-label', solo ? 'Contract the speedometer: show the car selector again' : 'Expand the speedometer: hide the car selector');
@@ -324,14 +329,25 @@
   // ---------- Controls ----------
   function setRunning(on) {
     if (on && window.DriveFX && DriveFX.gate && !DriveFX.gate()) return; // trial over / no license (see paywall.js)
-    if (!on && demo) setDemo(false);
+    if (!on) {
+      clearPedals();
+      if (demo) setDemo(false);
+      if (S.mode === 'test') { S.speed = 0; S.rpm = 0; }
+    }
     S.running = on; S.sweepT = 0;
+    for (const button of Object.values(pedals)) button.setAttribute('aria-disabled', !on);
+    el.testSpeed.disabled = !on;
+    el.testBox.classList.toggle('engine-ready', on);
+    resetPedalHint();
     el.startBtn.classList.toggle('running', on);
     el.startLabel.textContent = on ? 'STOP ENGINE' : 'START ENGINE';
     document.body.classList.toggle('on', on); // the photo glows while the engine runs
     if (on && S.mode === 'gps') startGps(); else if (!on) { stopGps(); S.targetSpeed = 0; el.testSpeed.value = 0; syncRanges(); }
   }
   function setMode(m) {
+    clearPedals();
+    if (m !== S.mode) resetPedalHint();
+    if (m === 'test' && !S.running) { S.speed = 0; S.rpm = 0; }
     if (m !== 'test' && demo) setDemo(false);
     S.mode = m; store.set('mode', m);
     document.querySelectorAll('[data-mode]').forEach(b => { const on = b.dataset.mode === m; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
@@ -351,6 +367,48 @@
   }
   function syncRanges() {
     [el.volume, el.testSpeed].forEach(r => r.style.setProperty('--p', ((r.value - r.min) / (r.max - r.min) * 100) + '%'));
+  }
+
+  function resetPedalHint() {
+    el.pedalHint.classList.remove('show-ignition');
+    el.pedalHint.textContent = S.running ? 'Hold a pedal to drive.' : 'Start the engine to drive.';
+  }
+
+  function canDriveTest() {
+    if (S.mode !== 'test') return false;
+    if (S.running) return true;
+    el.pedalHint.classList.add('show-ignition');
+    el.pedalHint.textContent = 'Start the engine first.';
+    return false;
+  }
+
+  function setTestTarget(speed) {
+    S.targetSpeed = clamp(speed, 0, S.car.top);
+    el.testSpeed.value = S.targetSpeed * unitFactor();
+    syncRanges();
+  }
+
+  function pressPedal(key, source) {
+    if (!canDriveTest()) return;
+    if (demo) setDemo(false);
+    // A quick tap should register even when it starts and ends between frames.
+    if (!pedalInputs[key].size && (key === 'down' || !pedalInputs.down.size)) {
+      setTestTarget(S.targetSpeed + pedalRates[key] * 0.05);
+    }
+    pedalInputs[key].add(source);
+    pedals[key].classList.add('held');
+  }
+
+  function releasePedal(key, source) {
+    pedalInputs[key].delete(source);
+    if (!pedalInputs[key].size) pedals[key].classList.remove('held');
+  }
+
+  function clearPedals() {
+    for (const key of Object.keys(pedals)) {
+      pedalInputs[key].clear();
+      pedals[key].classList.remove('held');
+    }
   }
 
   // ---------- Warp background ----------
@@ -381,10 +439,11 @@
     S.sweepT += dt;
 
     if (S.mode === 'test') {
-      if (demo) runDemo(dt);
-      if (S.keys.up) S.targetSpeed = Math.min(S.car.top, S.targetSpeed + 60 * dt);
-      if (S.keys.down) S.targetSpeed = Math.max(0, S.targetSpeed - 90 * dt);
-      if (S.keys.up || S.keys.down) { el.testSpeed.value = S.targetSpeed * unitFactor(); syncRanges(); }
+      if (S.running) {
+        if (demo) runDemo(dt);
+        const rate = pedalInputs.down.size ? pedalRates.down : pedalInputs.up.size ? pedalRates.up : 0;
+        if (rate) setTestTarget(S.targetSpeed + rate * dt);
+      }
       el.testSpeedVal.textContent = Math.round(S.targetSpeed * unitFactor());
     }
     S.speed += (S.targetSpeed - S.speed) * (1 - Math.exp(-dt * (S.mode === 'gps' ? 2.2 : 3)));
@@ -418,12 +477,25 @@
 
   // ---------- Wiring ----------
   el.simBtn.onclick = () => setDemo(!demo);
-  const hold = (btn, key) => {
-    const on = e => { e.preventDefault(); if (demo) setDemo(false); S.keys[key] = true; btn.classList.add('held'); };
-    const off = () => { S.keys[key] = false; btn.classList.remove('held'); };
-    btn.addEventListener('pointerdown', on); ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => btn.addEventListener(ev, off));
-  };
-  hold(el.gasBtn, 'up'); hold(el.brakeBtn, 'down');
+  // Keep the pedals focusable when locked so activation can surface the inline hint.
+  for (const [key, button] of Object.entries(pedals)) {
+    button.addEventListener('pointerdown', e => { if (e.button === 0) pressPedal(key, e.pointerId); });
+    for (const event of ['pointerup', 'pointerleave', 'pointercancel', 'lostpointercapture']) {
+      button.addEventListener(event, e => releasePedal(key, e.pointerId));
+    }
+    button.addEventListener('blur', () => {
+      releasePedal(key, 'Enter');
+      releasePedal(key, ' ');
+    });
+    button.addEventListener('click', e => {
+      // Assistive technology can activate a button without a pointer or key hold.
+      if (e.detail !== 0 || !canDriveTest()) return;
+      if (demo) setDemo(false);
+      setTestTarget(S.targetSpeed + (key === 'up' ? 10 : -10));
+    });
+  }
+  addEventListener('blur', clearPedals);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) clearPedals(); });
   el.startBtn.onclick = () => setRunning(!S.running);
   document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
   el.unit.onclick = () => setUnit(S.unit === 'kmh' ? 'mph' : 'kmh');
@@ -448,12 +520,31 @@
     tiles[j].focus();
   });
   addEventListener('keydown', e => { if (e.key === 'Escape') closeGarage(); });
-  el.testSpeed.oninput = () => { if (demo) setDemo(false); S.targetSpeed = el.testSpeed.value / unitFactor(); syncRanges(); };
+  el.testSpeed.oninput = () => {
+    if (!canDriveTest()) return;
+    if (demo) setDemo(false);
+    setTestTarget(el.testSpeed.value / unitFactor());
+  };
   el.volume.oninput = () => { S.volume = +el.volume.value; el.volumeVal.textContent = S.volume + '%'; store.set('vol', S.volume); syncRanges(); };
   addEventListener('keydown', e => { if (!garageIsOpen() && e.target.tagName !== 'INPUT' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); stepCar(e.key === 'ArrowRight' ? 1 : -1); } });
   const keyMap = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down' };
-  addEventListener('keydown', e => { if (keyMap[e.key] && e.target.tagName !== 'INPUT' && !garageIsOpen()) { if (demo) setDemo(false); S.keys[keyMap[e.key]] = true; if (e.key.startsWith('Arrow')) e.preventDefault(); } });
-  addEventListener('keyup', e => { if (keyMap[e.key]) S.keys[keyMap[e.key]] = false; });
+  const isPedalActivation = key => key === 'Enter' || key === ' ';
+  addEventListener('keydown', e => {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || S.mode !== 'test' || garageIsOpen()) return;
+    if (e.target.closest?.('input, textarea, select, [contenteditable], [role=dialog]')) return;
+    const key = isPedalActivation(e.key)
+      ? (e.target === el.gasBtn ? 'up' : e.target === el.brakeBtn ? 'down' : null)
+      : keyMap[e.key];
+    if (!key) return;
+    e.preventDefault();
+    if (!e.repeat) pressPedal(key, isPedalActivation(e.key) ? e.key : e.code || e.key);
+  });
+  addEventListener('keyup', e => {
+    const activation = isPedalActivation(e.key);
+    if (activation && (e.target === el.gasBtn || e.target === el.brakeBtn)) e.preventDefault();
+    const source = activation ? e.key : e.code || e.key;
+    for (const key of Object.keys(pedals)) releasePedal(key, source);
+  });
   let wake = null;
   setInterval(async () => { try { if (S.running && !wake && navigator.wakeLock) { wake = await navigator.wakeLock.request('screen'); wake.onrelease = () => wake = null; } else if (!S.running && wake) wake.release(); } catch {} }, 2000);
 

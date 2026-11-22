@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2026112202">
+<link rel="stylesheet" href="style.css?v=20261122-pedals3">
 </head>
 <body>
 <canvas id="bg" aria-hidden="true"></canvas>
@@ -68,12 +68,17 @@
     </div>
     <!-- test drive dock: only visible in TEST DRIVE mode -->
     <div class="test-box" id="testBox" hidden>
-      <button class="pedal brake" id="brakeBtn" type="button">BRAKE</button>
+      <button class="pedal brake" id="brakeBtn" type="button" aria-disabled="true" aria-describedby="pedalHint">
+        <span class="pedal-face" aria-hidden="true"></span><span>BRAKE</span>
+      </button>
+      <button class="pedal gas" id="gasBtn" type="button" aria-disabled="true" aria-describedby="pedalHint">
+        <span class="pedal-face" aria-hidden="true"></span><span>GAS</span>
+      </button>
       <div class="tspeed">
         <label for="testSpeed">TEST SPEED <b id="testSpeedVal">0</b> <span class="su">km/h</span></label>
-        <input type="range" id="testSpeed" min="0" max="240" value="0">
+        <input type="range" id="testSpeed" min="0" max="240" value="0" disabled>
+        <p class="pedal-hint" id="pedalHint" role="status">Start the engine to drive.</p>
       </div>
-      <button class="pedal gas" id="gasBtn" type="button">GAS</button>
       <button class="sim" id="simBtn" type="button" title="Auto-drive: accelerates through the gears, brakes and repeats">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor"/></svg>
         <span id="simLabel">SIMULATE DRIVE</span>
@@ -138,7 +143,7 @@
   </div>
 </footer>
 
-<script src="app.js?v=202611162135"></script>
+<script src="app.js?v=20261122-pedals3"></script>
 <script src="vendor/qrcode.js?v=1"></script>
 <script src="paywall.js?v=2026112201"></script>
 <script src="audio.js?v=202611161100"></script>
