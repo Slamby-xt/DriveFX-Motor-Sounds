@@ -319,22 +319,17 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .pw-link{display:block;margin:4px auto 0;padding:6px;border:0;background:none;color:var(--mute);font:600 13px var(--f-body,Rajdhani,sans-serif);text-decoration:underline;cursor:pointer}.pw-link:hover{color:var(--accent,#00e5ff)}
 
 /* ---- site footer ---- */
-.site-foot{position:relative;z-index:1;padding:8px var(--pad) 16px;padding-bottom:max(16px,env(safe-area-inset-bottom));
-  border-top:1px solid rgba(var(--ar),.32);background:var(--bg)}
+.site-foot{position:relative;z-index:1;padding:2px var(--pad) 10px;padding-bottom:max(10px,env(safe-area-inset-bottom));
+  border-top:1px solid rgba(var(--ar),.2);background:var(--bg)}
 body.solo .site-foot{display:none}
-.site-foot-top,.site-foot-bottom{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:24px}
-.site-foot-brand{font:900 14px var(--f-display);letter-spacing:.14em}
+.site-foot-top,.site-foot-bottom{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:16px}
+.site-foot-brand{font:900 12px var(--f-display);letter-spacing:.14em}
 .site-foot-brand span{color:var(--accent)}
-.site-foot-links{display:flex;flex-wrap:wrap;align-items:center;column-gap:18px}
-.site-foot a{display:inline-flex;align-items:center;min-height:44px;color:var(--text);font-weight:700;
+.site-foot-links{display:flex;flex-wrap:wrap;align-items:center;column-gap:14px}
+.site-foot a{display:inline-flex;align-items:center;min-height:44px;color:var(--text);font:600 14px/1.25 var(--f-ui);
   text-decoration:underline;text-decoration-color:var(--mute);text-underline-offset:.22em}
 .site-foot a:hover,.site-foot a:focus{color:var(--accent);text-decoration-color:currentColor}
 .site-foot a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.site-foot-bottom{align-items:baseline;row-gap:8px;padding-top:10px;border-top:1px solid var(--line)}
-.site-foot-bottom small{font:500 13px/1.5 system-ui,sans-serif;color:var(--mute)}
-.site-foot-note{flex:1 1 44rem;max-width:92ch}
-
-@media (max-width:600px){
-  .site-foot{padding-top:16px}
-  .site-foot-top{display:block}
-}
+.site-foot-bottom{align-items:baseline;row-gap:4px;padding-top:6px;border-top:1px solid var(--line)}
+.site-foot-bottom small{font:500 12px/1.45 system-ui,sans-serif;color:var(--mute)}
+.site-foot-note{flex:1 1 32rem;max-width:92ch}
