@@ -128,6 +128,14 @@ export function fakeStripe() {
       }
       return ok(st.attempts[key]);
     }
+    if (p === '/checkout/sessions' && method === 'GET') {
+      return ok({ data: Object.values(st.sessions).filter(session =>
+        session.payment_intent === u.searchParams.get('payment_intent')) });
+    }
+    if (p.startsWith('/invoices/')) {
+      const invoice = Object.values(st.subs).map(invoiceFor).find(invoice => invoice?.id === p.split('/').pop());
+      return invoice ? ok(invoice) : err(404, 'resource_missing', 'no');
+    }
     if (p.startsWith('/checkout/sessions/')) {
       const session = st.sessions[p.split('/').pop()];
       return session ? ok(session) : err(404, 'resource_missing', 'no');

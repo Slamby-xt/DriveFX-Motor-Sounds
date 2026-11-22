@@ -25,6 +25,42 @@ const subOfInvoice = i => stripeId(i.parent?.subscription_details?.subscription 
 const getLic = (c, id) => c.store.get('lic:' + id);
 const putLic = (c, id, rec) => c.store.set('lic:' + id, rec);
 
+// Look up the billing details on the payment that funded the listed license.
+export async function stripeBuyerDetails(c, id) {
+  const license = await getLic(c, id);
+  if (license?.src !== 'stripe') return null;
+  const customer = stripeId(license.cus, 'cus_');
+  if (!customer) return null;
+
+  let email, country;
+  if (license.plan === 'lifetime') {
+    const payment = stripeId(license.pi, 'pi_');
+    if (!payment) return null;
+    const sessions = await sx(c, 'GET', '/checkout/sessions', { payment_intent: payment, limit: 2 });
+    const session = sessions.data.find(s => s.status === 'complete' && s.mode === 'payment'
+      && s.payment_status === 'paid' && s.metadata?.app === 'drivefx'
+      && stripeId(s.payment_intent, 'pi_') === payment && customerOf(s) === customer);
+    if (!session) return null;
+    email = session.customer_details?.email;
+    country = session.customer_details?.address?.country;
+  } else {
+    const sub = stripeId(license.sub, 'sub_');
+    if (!sub) return null;
+    const link = await c.store.get('sub:' + sub);
+    const invoiceId = stripeId(link?.invoice, 'in_');
+    if (!invoiceId || link.device !== id || link.customer !== customer) return null;
+    const invoice = await sx(c, 'GET', '/invoices/' + invoiceId);
+    if (stripeId(invoice, 'in_') !== invoiceId || invoice.status !== 'paid' || invoice.amount_paid <= 0
+        || subOfInvoice(invoice) !== sub || customerOf(invoice) !== customer) return null;
+    email = invoice.customer_email;
+    country = invoice.customer_address?.country;
+  }
+  return {
+    email: typeof email === 'string' && email.trim() ? email.trim() : null,
+    country: typeof country === 'string' && /^[A-Z]{2}$/.test(country) ? country : null,
+  };
+}
+
 function withCustomer(rec, cus) {
   const customers = rec?.cuss ?? (rec?.cus ? [rec.cus] : []);
   return customers.includes(cus) ? customers : [...customers, cus].slice(-5);

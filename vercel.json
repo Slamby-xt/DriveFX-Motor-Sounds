@@ -18,7 +18,7 @@
     { "source": "/:r(status|prices|go|thanks|portal|trial|grant|revoke|list|find|relink|stripe-webhook)", "destination": "/api?__r=:r" },
     { "source": "/internal/cleanup", "destination": "/api?__r=cleanup" },
     { "source": "/admin/session", "destination": "/api?__r=admin-session" },
-    { "source": "/admin/:r(grant|revoke|list|find|relink)", "destination": "/api?__r=:r" },
+    { "source": "/admin/:r(grant|revoke|list|find|relink|buyers)", "destination": "/api?__r=:r" },
     { "source": "/admin", "destination": "/admin/index.html" }
   ],
   "headers": [

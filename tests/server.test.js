@@ -334,6 +334,79 @@ test('admin browser sessions survive reload, reject cross-origin requests and ex
   assert.equal((await locked.call('POST', '/admin/session', { headers: credentials, origin })).status, 429);
 });
 
+test('admin buyer details require a same-origin session and only return billing details for verified paid licenses', async () => {
+  const a = app();
+  const YEARLY = 'DFX-YYYY-0003', MANUAL = 'DFX-MMMM-0004', MOVED = 'DFX-MMMM-0005';
+  const MOVED_MONTHLY = 'DFX-MMMM-0006';
+  const origin = 'https://drivefx-test.vercel.app', path = '/admin/buyers';
+  const purchase = lifetimeEvent(a, 'pi_lifetime', 'cus_1', ID, {
+    session: { customer_details: { email: 'lifetime@example.test', address: { country: 'GB', line1: 'private address' } } },
+  });
+  a.stripe.pis.pi_lifetime = { charge: 'ch_lifetime' };
+  a.stripe.charges.ch_lifetime = { id: 'ch_lifetime', payment_intent: 'pi_lifetime', customer: 'cus_1' };
+  assert.equal((await a.hook(purchase)).status, 200);
+  a.stripe.subs.sub_1 = subObj({ metadata: testMetadata(ID2, 'monthly'),
+    latest_invoice: { id: 'in_monthly', status: 'paid', amount_paid: 299, customer: 'cus_1',
+      parent: { subscription_details: { subscription: 'sub_1' } },
+      customer_email: 'monthly@example.test', customer_address: { country: 'FR', city: 'private city' } },
+  });
+  assert.equal((await a.hook(checkoutSub(a, { client_reference_id: ID2, metadata: testMetadata(ID2, 'monthly') }))).status, 200);
+  a.stripe.subs.sub_y = subObj({ id: 'sub_y', customer: 'cus_2', metadata: testMetadata(YEARLY, 'yearly'),
+    latest_invoice: { id: 'in_yearly', subscription: 'sub_y', status: 'paid', amount_paid: 2999, customer: 'cus_2',
+      customer_email: 'yearly@example.test' },
+  });
+  assert.equal((await a.hook(checkoutSub(a, { subscription: 'sub_y', customer: 'cus_2',
+    client_reference_id: YEARLY, metadata: testMetadata(YEARLY, 'yearly') }))).status, 200);
+  assert.equal((await a.admin('POST', '/relink', { from: ID, to: MOVED })).status, 200);
+  assert.equal((await a.admin('POST', '/relink', { from: ID2, to: MOVED_MONTHLY })).status, 200);
+  await a.store.set('lic:' + MANUAL, { plan: 'manual', sub: 'sub_1', cus: 'cus_1' });
+
+  const body = { ids: [MOVED, MOVED_MONTHLY, YEARLY, MANUAL, ID, ID2, MOVED_MONTHLY] };
+  const calls = a.stripe.calls.length;
+  const anonymous = await a.call('POST', path, { body, origin });
+  assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.headers.get('Cache-Control'), 'no-store');
+  const login = await a.call('POST', '/admin/session', { origin, headers: { 'X-Admin-Token': a.env.ADMIN_TOKEN } });
+  const headers = { Cookie: login.headers.get('Set-Cookie').split(';')[0] };
+  assert.equal((await a.call('POST', path, { body, origin: 'https://other.example', headers })).status, 403);
+  assert.equal((await a.call('POST', path, { body: { ids: Array(11).fill(ID) }, origin, headers })).status, 400);
+  assert.equal((await a.call('POST', path, { body: { ids: [[ID]] }, origin, headers })).status, 400);
+  assert.equal(a.stripe.calls.length, calls);
+
+  const response = await a.call('POST', '/api?__r=buyers', { body, origin, headers });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  assert.deepEqual((await response.json()).buyers, {
+    [MOVED]: { email: 'lifetime@example.test', country: 'GB' },
+    [MOVED_MONTHLY]: { email: 'monthly@example.test', country: 'FR' },
+    [ID2]: null,
+    [YEARLY]: { email: 'yearly@example.test', country: null },
+    [ID]: null,
+    [MANUAL]: null,
+  });
+  assert.equal(a.stripe.calls.length - calls, 3);
+  const checkout = a.stripe.calls.find(call => call.p === '/checkout/sessions' && call.method === 'GET');
+  assert.equal(checkout.query.get('payment_intent'), 'pi_lifetime');
+  assert.doesNotMatch(JSON.stringify((await status(a, MOVED_MONTHLY))), /@example.test|\bFR\b/);
+  assert.doesNotMatch(JSON.stringify((await a.admin('GET', '/list')).items), /@example.test/);
+  assert.doesNotMatch(JSON.stringify([...a.store.m]), /@example.test|private (address|city)/);
+
+  a.stripe.sessions[purchase.data.object.id].customer = 'cus_other';
+  a.stripe.subs.sub_1.latest_invoice.parent.subscription_details.subscription = 'sub_other';
+  const beforeMismatch = a.stripe.calls.length;
+  const mismatch = await a.admin('POST', path, { ids: [MOVED, MOVED_MONTHLY] });
+  assert.deepEqual(mismatch.buyers, { [MOVED]: null, [MOVED_MONTHLY]: null });
+  assert.equal(a.stripe.calls.length - beforeMismatch, 2);
+
+  a.stripe.failNext = 'api_error';
+  const partial = await a.admin('POST', path, { ids: [MOVED, YEARLY] });
+  assert.deepEqual(partial.buyers[MOVED], { unavailable: true });
+  assert.equal(partial.buyers[YEARLY].email, 'yearly@example.test');
+
+  assert.equal((await a.call('DELETE', '/admin/session', { origin, headers })).status, 200);
+  assert.equal((await a.call('POST', path, { body, origin, headers })).status, 401);
+});
+
 test('admin relink keeps billing links; later renewals land on the new ID; revoke cancels the subscription', async () => {
   const a = app(); a.stripe.subs.sub_1 = subObj(); await a.hook(checkoutSub(a));
   await a.admin('POST', '/grant', { id: ID, days: 5 });

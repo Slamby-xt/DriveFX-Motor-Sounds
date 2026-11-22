@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
-import { deviceMetadata, finishBilling, ID_RE, isActive, webhook } from './payments.js';
+import { deviceMetadata, finishBilling, ID_RE, isActive, stripeBuyerDetails, webhook } from './payments.js';
 import { getPrices, PLANS, stripeDiagnostic, sx } from './stripe.js';
 import { checkIsolation } from './store.js';
 
@@ -15,6 +15,7 @@ import { checkIsolation } from './store.js';
 //   POST /stripe-webhook                Stripe -> us (signature checked on the raw body)
 //   POST /admin/session signs in with X-Admin-Token, GET extends the session, DELETE signs out.
 //   POST /grant {id, days, mode} | POST /revoke {id} | GET /list | GET /find?email= | POST /relink {from, to}   admin session or X-Admin-Token
+//   POST /admin/buyers {ids}          admin only: Stripe billing snapshots for a page of paid licenses
 // Server-only environment variables: see .env.example.
 //
 const FP_RE = /^[a-f0-9]{64}$/;
@@ -22,7 +23,8 @@ const TRIAL_SECONDS = 5 * 60;          // keep equal to TRIAL_SECONDS in paywall
 const NEW_TRIALS_PER_NETWORK_DAY = 40;
 const TRIAL_KEEP_DAYS = 400;
 const ADMIN_SESSION = '__Secure-drivefx-admin';
-const ADMIN_ACTIONS = new Set(['grant', 'revoke', 'list', 'find', 'relink']);
+const ADMIN_ACTIONS = new Set(['grant', 'revoke', 'list', 'find', 'relink', 'buyers']);
+const BUYER_BATCH_SIZE = 10;
 const ADMIN_IDLE_SECONDS = 10 * 60;
 const SITE = 'https://drivefx.pro';
 const ORIGINS = [SITE, 'https://www.drivefx.pro', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'];
@@ -492,6 +494,21 @@ export async function handle(req, deps) {
 
       if (req.method === 'POST') {
         let b; try { b = await req.json(); if (!b || typeof b !== 'object') throw new Error('invalid body'); } catch { return json(c, { error: 'bad request' }, 400); }
+        if (route === 'buyers') {
+          if (!Array.isArray(b.ids) || b.ids.length > BUYER_BATCH_SIZE
+              || !b.ids.every(id => typeof id === 'string' && ID_RE.test(id))) {
+            return json(c, { error: 'Enter up to 10 DriveFX IDs.' }, 400);
+          }
+          const entries = await Promise.all([...new Set(b.ids)].map(async id => {
+            try {
+              return [id, await stripeBuyerDetails(c, id)];
+            } catch (error) {
+              console.error('DriveFX buyer details lookup failed', stripeDiagnostic(error));
+              return [id, { unavailable: true }];
+            }
+          }));
+          return json(c, { buyers: Object.fromEntries(entries) });
+        }
         if (route === 'relink') {
           const from = String(b.from || '').toUpperCase(), to = String(b.to || '').toUpperCase();
           if (!ID_RE.test(from) || !ID_RE.test(to) || from === to) return json(c, { error: 'Both IDs must look like DFX-XXXX-XXXX and differ.' }, 400);
