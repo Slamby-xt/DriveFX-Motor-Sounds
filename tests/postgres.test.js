@@ -135,7 +135,7 @@ test('DriveFX migration and concurrent writes on real Postgres', { skip: !ownerU
   });
 
   await t.test('admin session activity extends only an unexpired transient record', async () => {
-    const key = 'admin-session:test';
+    const key = 'lease:admin-session:test';
     assert.equal(await store.touch(key, 600), false);
     await store.set(key, true, { ex: 10 });
     assert.equal(await store.touch(key, 600), true);

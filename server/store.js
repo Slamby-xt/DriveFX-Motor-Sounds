@@ -12,7 +12,7 @@ export function checkIsolation(env) {
   return p;
 }
 
-const transient = /^(tr|rl|ev|lease|checkout|admin-session):/;
+const transient = /^(tr|rl|ev|lease|checkout):/;
 const tableOf = key => transient.test(key) ? 'drivefx.transient' : 'drivefx.records';
 
 function queries(db) {

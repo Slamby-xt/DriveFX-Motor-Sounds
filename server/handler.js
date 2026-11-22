@@ -87,7 +87,7 @@ function sameAdminOrigin(c) {
 function adminSessionKey(c, token) {
   // Tying the lookup key to the current password invalidates sessions on password rotation.
   return c.env.ADMIN_TOKEN?.length >= 14 && /^[A-Za-z0-9_-]{43}$/.test(token || '')
-    ? 'admin-session:' + createHmac('sha256', c.env.ADMIN_TOKEN).update(token).digest('hex')
+    ? 'lease:admin-session:' + createHmac('sha256', c.env.ADMIN_TOKEN).update(token).digest('hex')
     : null;
 }
 

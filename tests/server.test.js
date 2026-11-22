@@ -253,8 +253,8 @@ test('admin browser sessions survive reload, reject cross-origin requests and ex
   const setCookie = login.headers.get('Set-Cookie');
   assert.match(setCookie, /^__Secure-drivefx-admin=[A-Za-z0-9_-]{43}; Path=\/admin; Secure; HttpOnly; SameSite=Strict$/);
   const headers = { Cookie: setCookie.split(';')[0] };
-  const key = [...a.store.m.keys()].find(key => key.startsWith('admin-session:'));
-  assert.match(key, /^admin-session:[a-f0-9]{64}$/);
+  const key = [...a.store.m.keys()].find(key => key.startsWith('lease:admin-session:'));
+  assert.match(key, /^lease:admin-session:[a-f0-9]{64}$/);
   assert.ok(!key.includes(headers.Cookie.split('=')[1]));
 
   assert.equal((await a.call('GET', '/admin/list', { headers })).status, 200);
@@ -276,7 +276,7 @@ test('admin browser sessions survive reload, reject cross-origin requests and ex
   assert.equal((await a.call('GET', '/admin/list', { headers })).status, 401);
   const nextLogin = await a.call('POST', '/admin/session', { headers: credentials, origin });
   const expired = { Cookie: nextLogin.headers.get('Set-Cookie').split(';')[0] };
-  const nextKey = [...a.store.m.keys()].find(key => key.startsWith('admin-session:'));
+  const nextKey = [...a.store.m.keys()].find(key => key.startsWith('lease:admin-session:'));
   a.store.m.get(nextKey).exp = Date.now() - 1000;
   assert.equal((await a.call('GET', '/admin/session', { headers: expired })).status, 401);
   assert.equal((await a.call('GET', '/admin/list', { headers: expired })).status, 401);
