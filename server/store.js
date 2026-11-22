@@ -12,7 +12,7 @@ export function checkIsolation(env) {
   return p;
 }
 
-const transient = /^(tr|rl|ev|lease|checkout):/;
+const transient = /^(tr|rl|ev|lease|checkout|admin-session):/;
 const tableOf = key => transient.test(key) ? 'drivefx.transient' : 'drivefx.records';
 
 function queries(db) {
@@ -43,6 +43,15 @@ function queries(db) {
 
     async del(key) {
       await db.query(`DELETE FROM ${tableOf(key)} WHERE key = $1`, [key]);
+    },
+
+    async touch(key, ttl) {
+      const result = await db.query(`
+        UPDATE drivefx.transient
+        SET expires_at = statement_timestamp() + $2::integer * interval '1 second'
+        WHERE key = $1 AND expires_at > statement_timestamp()
+      `, [key, ttl]);
+      return result.rowCount === 1;
     },
 
     async purgeExpired() {

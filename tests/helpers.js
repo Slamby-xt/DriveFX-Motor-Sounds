@@ -19,6 +19,12 @@ export function memoryStore() {
         return true;
       },
       del: async k => { entries.delete(k); },
+      async touch(key, ttl) {
+        const row = live(key);
+        if (!row) return false;
+        entries.set(key, { ...row, exp: Date.now() + ttl * 1000 });
+        return true;
+      },
       release: async (k, token) => { if (live(k)?.v === token) entries.delete(k); },
       async incr(k, ttl) {
         const e = live(k), v = (e?.v ?? 0) + 1;

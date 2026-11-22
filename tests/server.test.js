@@ -242,6 +242,52 @@ test('admin: auth, lockout, grant/extend/lifetime/list/revoke/relink', async () 
   assert.equal((await c.admin('GET', '/list')).status, 200);
 });
 
+test('admin browser sessions survive reload, reject cross-origin requests and expire or revoke on lock', async () => {
+  const a = app();
+  const origin = 'https://drivefx-test.vercel.app';
+  const credentials = { 'X-Admin-Token': a.env.ADMIN_TOKEN };
+  for (let i = 0; i < 9; i++) assert.equal((await a.call('GET', '/list')).status, 401);
+  assert.equal((await a.call('POST', '/admin/session', { headers: credentials, origin: 'https://evil.example' })).status, 403);
+  const login = await a.call('POST', '/api?__r=admin-session', { headers: credentials, origin });
+  assert.equal(login.status, 200);
+  const setCookie = login.headers.get('Set-Cookie');
+  assert.match(setCookie, /^__Secure-drivefx-admin=[A-Za-z0-9_-]{43}; Path=\/admin; Secure; HttpOnly; SameSite=Strict$/);
+  const headers = { Cookie: setCookie.split(';')[0] };
+  const key = [...a.store.m.keys()].find(key => key.startsWith('admin-session:'));
+  assert.match(key, /^admin-session:[a-f0-9]{64}$/);
+  assert.ok(!key.includes(headers.Cookie.split('=')[1]));
+
+  assert.equal((await a.call('GET', '/admin/list', { headers })).status, 200);
+  assert.equal((await a.call('POST', '/admin/grant', { headers, origin, body: { id: ID, days: 1 } })).status, 200);
+  assert.equal((await status(a)).active, true);
+  assert.equal((await a.call('POST', '/admin/grant', { headers, origin: 'https://drivefx.pro', body: { id: ID2, days: 1 } })).status, 403);
+  assert.equal((await a.call('GET', '/admin/list', { headers: { ...headers, 'Sec-Fetch-Site': 'same-site' } })).status, 403);
+
+  a.store.m.get(key).exp = Date.now() + 1000;
+  assert.equal((await a.call('GET', '/admin/session', { headers })).status, 200);
+  assert.ok(a.store.m.get(key).exp > Date.now() + 590000);
+  a.env.ADMIN_TOKEN = 'a-different-admin-password';
+  assert.equal((await a.call('GET', '/admin/list', { headers })).status, 401);
+  a.env.ADMIN_TOKEN = credentials['X-Admin-Token'];
+
+  const logout = await a.call('DELETE', '/admin/session', { headers, origin });
+  assert.equal(logout.status, 200);
+  assert.match(logout.headers.get('Set-Cookie'), /Max-Age=0/);
+  assert.equal((await a.call('GET', '/admin/list', { headers })).status, 401);
+  const nextLogin = await a.call('POST', '/admin/session', { headers: credentials, origin });
+  const expired = { Cookie: nextLogin.headers.get('Set-Cookie').split(';')[0] };
+  const nextKey = [...a.store.m.keys()].find(key => key.startsWith('admin-session:'));
+  a.store.m.get(nextKey).exp = Date.now() - 1000;
+  assert.equal((await a.call('GET', '/admin/session', { headers: expired })).status, 401);
+  assert.equal((await a.call('GET', '/admin/list', { headers: expired })).status, 401);
+
+  const locked = app();
+  for (let i = 0; i < 8; i++) {
+    assert.equal((await locked.call('POST', '/admin/session', { headers: { 'X-Admin-Token': 'wrong' }, origin })).status, 401);
+  }
+  assert.equal((await locked.call('POST', '/admin/session', { headers: credentials, origin })).status, 429);
+});
+
 test('admin relink keeps billing links; later renewals land on the new ID; revoke cancels the subscription', async () => {
   const a = app(); a.stripe.subs.sub_1 = subObj(); await a.hook(checkoutSub(a));
   await a.admin('POST', '/grant', { id: ID, days: 5 });

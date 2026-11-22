@@ -70,13 +70,18 @@ td button{padding:6px 10px;border-radius:8px;border:1px solid var(--line);backgr
 </div></div>
 <script>
 (() => {
-const API = location.origin, IDLE = 10 * 60 * 1000;
+const IDLE = 10 * 60 * 1000;
+const SESSION_TOUCH = 15 * 1000;
+const SIGN_OUT_PENDING = 'drivefx-admin-sign-out';
 const $ = s => document.querySelector(s);
-let token = null, idleT = null, items = [];
+let unlocked = false, idleT = null, lastTouch = 0, items = [];
 
 // ---------- talking to the license server ----------
-async function api(path, body) {
-  const r = await fetch(API + path, { method: body ? 'POST' : 'GET', headers: { 'X-Admin-Token': token || '', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+async function api(path, body, { method = body ? 'POST' : 'GET', password } = {}) {
+  const headers = {};
+  if (body) headers['Content-Type'] = 'application/json';
+  if (password) headers['X-Admin-Token'] = password;
+  const r = await fetch('/admin' + path, { method, headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
   let j = {}; try { j = await r.json(); } catch {}
   if (!r.ok) { const e = new Error(j.error || 'Server error'); e.status = r.status; throw e; }
   return j;
@@ -89,25 +94,80 @@ function setPasswordVisible(visible) {
 }
 $('#togglePw').onclick = () => setPasswordVisible($('#pw').type === 'password');
 
+async function resume() {
+  await load();
+  unlocked = true;
+  lastTouch = Date.now();
+  $('#pw').value = '';
+  setPasswordVisible(false);
+  $('#gate').classList.add('hide');
+  $('#app').classList.remove('hide');
+  $('#lock').classList.remove('hide');
+  $('#sub').textContent = 'Unlocked. Locks itself after 10 minutes of inactivity.';
+  $('#id').focus();
+  bump();
+}
+
 async function unlock() {
-  const pw = $('#pw').value.trim(); if (!pw) return;
+  const pw = $('#pw').value.trim(); if (!pw || $('#unlock').disabled) return;
   if (!/^[!-~]+$/.test(pw)) { $('#gmsg').style.color = 'var(--err)'; $('#gmsg').textContent = 'The password has a character that is not an English letter, digit or symbol (or a space). Switch the keyboard to English (EN) and type it again.'; return; }
   const btn = $('#unlock'); btn.disabled = true; $('#gmsg').style.color = 'var(--mute)'; $('#gmsg').textContent = 'Checking…';
-  token = pw;
   try {
-    await load();
-    $('#pw').value = ''; setPasswordVisible(false); $('#gate').classList.add('hide'); $('#app').classList.remove('hide'); $('#lock').classList.remove('hide');
-    $('#sub').textContent = 'Unlocked. Locks itself after 10 minutes of inactivity.'; $('#id').focus(); bump();
+    await api('/session', undefined, { method: 'POST', password: pw });
+    $('#pw').value = '';
+    setPasswordVisible(false);
+    try { sessionStorage.removeItem(SIGN_OUT_PENDING); } catch {}
+    await resume();
   } catch (e) {
-    token = null; $('#gmsg').style.color = 'var(--err)';
+    $('#gmsg').style.color = 'var(--err)';
     $('#gmsg').textContent = e.status === 401 || e.status === 429 ? e.message : 'Cannot reach the license server.';
   }
   btn.disabled = false;
 }
-function lock() { token = null; items = []; setPasswordVisible(false); $('#app').classList.add('hide'); $('#lock').classList.add('hide'); $('#gate').classList.remove('hide'); $('#sub').textContent = 'Locked.'; $('#gmsg').textContent = ''; $('#pw').focus(); }
-function bump() { clearTimeout(idleT); idleT = setTimeout(lock, IDLE); }
-['pointerdown', 'keydown'].forEach(e => addEventListener(e, () => token && bump()));
-$('#unlock').onclick = unlock; $('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); }); $('#lock').onclick = lock;
+function lock() {
+  unlocked = false;
+  clearTimeout(idleT);
+  lastTouch = 0;
+  items = [];
+  $('#hist').replaceChildren();
+  $('#fOut').replaceChildren();
+  setPasswordVisible(false);
+  $('#app').classList.add('hide');
+  $('#lock').classList.add('hide');
+  $('#gate').classList.remove('hide');
+  $('#sub').textContent = 'Locked.';
+  $('#gmsg').textContent = '';
+  $('#pw').focus();
+}
+
+async function signOut() {
+  lock();
+  const button = $('#unlock');
+  button.disabled = true;
+  // Keep the page locked on refresh if the server could not be reached.
+  try { sessionStorage.setItem(SIGN_OUT_PENDING, '1'); } catch {}
+  try {
+    await api('/session', undefined, { method: 'DELETE' });
+    try { sessionStorage.removeItem(SIGN_OUT_PENDING); } catch {}
+  } catch {
+    $('#gmsg').textContent = 'Could not end the server session. Refresh to retry or sign in again.';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function bump() {
+  clearTimeout(idleT);
+  idleT = setTimeout(lock, IDLE);
+  const now = Date.now();
+  if (now - lastTouch < SESSION_TOUCH) return;
+  lastTouch = now;
+  api('/session').catch(error => {
+    if (lastTouch === now && error.status === 401) lock();
+  });
+}
+['pointerdown', 'keydown'].forEach(e => addEventListener(e, () => unlocked && bump()));
+$('#unlock').onclick = unlock; $('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); }); $('#lock').onclick = signOut;
 
 // ---------- ID parsing (forgiving) ----------
 const LOOK = { 'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 'О': 'O', 'Р': 'P', 'С': 'C', 'Т': 'T', 'Х': 'X', 'У': 'Y' };
@@ -132,7 +192,7 @@ const fmtPlan = d => d ? d + ' days' : 'Lifetime';
 const planOf = x => x.src === 'stripe' ? (x.plan === 'lifetime' ? 'Lifetime' : x.plan === 'yearly' ? 'Yearly' : 'Monthly') + ' · Stripe' + (x.cancel ? ' (cancelled)' : '') : fmtPlan(x.days);
 function setMsg(t, ok) { const m = $('#msg'); m.textContent = t; m.className = 'msg' + (ok ? ' ok' : ''); }
 async function activate() {
-  if (!token) return lock();
+  if (!unlocked) return lock();
   const id = normId($('#id').value); $('#id').value = id;
   if (!/^DFX-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(id)) return setMsg('ID must look like DFX-XXXX-XXXX.', false);
   const days = plan === 'c' ? +$('#custom').value : plan;
@@ -142,8 +202,8 @@ async function activate() {
     const r = await api('/grant', { id, days, mode: $('#extend').checked ? 'extend' : 'set' });
     setMsg(`Done: ${id} is active ${r.exp ? 'until ' + new Date(r.exp * 1000).toLocaleDateString() : '(lifetime)'}. The customer's page unlocks by itself.`, true);
     $('#id').value = ''; await load();
-  } catch (e) { if (e.status === 401) return lock(); setMsg(e.message, false); }
-  btn.disabled = false;
+  } catch (e) { if (e.status === 401) lock(); else setMsg(e.message, false); }
+  finally { btn.disabled = false; }
 }
 $('#go').onclick = activate; $('#id').addEventListener('keydown', e => { if (e.key === 'Enter') activate(); });
 
@@ -172,21 +232,21 @@ $('#rid').addEventListener('paste', e => { const t = (e.clipboardData || window.
 $('#rid').addEventListener('blur', () => { $('#rid').value = normId($('#rid').value); });
 $('#rPaste').onclick = async () => { try { $('#rid').value = normId(await navigator.clipboard.readText()); rMsg('', true); } catch { rMsg('Browser blocked the clipboard — paste into the field manually.', false); } $('#rid').focus(); };
 async function cancelSub() {
-  if (!token) return lock();
+  if (!unlocked) return lock();
   const id = normId($('#rid').value); $('#rid').value = id;
   if (!/^DFX-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(id)) return rMsg('ID must look like DFX-XXXX-XXXX.', false);
   if (!confirm('Cancel the subscription for ' + id + '? It stops working on their device right away.')) return;
   const btn = $('#rGo'); btn.disabled = true;
   try { await api('/revoke', { id }); rMsg(`Done: the subscription for ${id} is cancelled.`, true); $('#rid').value = ''; await load(); }
-  catch (e) { if (e.status === 401) return lock(); rMsg(e.message, false); }
-  btn.disabled = false;
+  catch (e) { if (e.status === 401) lock(); else rMsg(e.message, false); }
+  finally { btn.disabled = false; }
 }
 $('#rGo').onclick = cancelSub; $('#rid').addEventListener('keydown', e => { if (e.key === 'Enter') cancelSub(); });
 // ---------- find by email + move license ----------
 function fMsg(t, ok) { const m = $('#fmsg'); m.textContent = t; m.className = 'msg' + (ok ? ' ok' : ''); }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 async function findMail() {
-  if (!token) return lock(); fMsg('', true);
+  if (!unlocked) return lock(); fMsg('', true);
   try {
     const r = await api('/find?email=' + encodeURIComponent($('#fEmail').value.trim()));
     $('#fOut').innerHTML = r.items.length ? r.items.map(x => `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)"><span class="id" style="font:700 14px ui-monospace,Consolas,monospace">${esc(x.id)}</span><span>${esc(x.plan || '')}</span>${x.active ? '<span class="tag on">Active</span>' : '<span class="tag off">Not active</span>'}<button data-from="${esc(x.id)}" style="margin-left:auto;padding:6px 10px;border-radius:8px;border:1px solid var(--ac);background:rgba(0,229,255,.1);color:var(--ac);cursor:pointer;font:700 12px inherit">MOVE TO NEW ID</button></div>`).join('') : '<span style="color:var(--mute)">No paying customer with that email.</span>';
@@ -202,6 +262,12 @@ $('#fOut').onclick = async e => {
   try { await api('/relink', { from: b.dataset.from, to }); fMsg(`Done: ${to} now has the license. It unlocks by itself.`, true); $('#fOut').innerHTML = ''; $('#fNew').value = ''; await load(); }
   catch (e2) { if (e2.status === 401) return lock(); fMsg(e2.message, false); }
 };
-$('#pw').focus();
+let pendingSignOut = false;
+try { pendingSignOut = sessionStorage.getItem(SIGN_OUT_PENDING) === '1'; } catch {}
+if (pendingSignOut) signOut();
+else {
+  $('#unlock').disabled = true;
+  resume().catch(() => $('#pw').focus()).finally(() => { $('#unlock').disabled = false; });
+}
 })();
 </script></body></html>

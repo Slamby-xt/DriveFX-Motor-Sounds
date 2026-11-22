@@ -1,4 +1,4 @@
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
 import { deviceMetadata, finishBilling, ID_RE, isActive, webhook } from './payments.js';
 import { CURRENCIES, getPrices, PLANS, stripeDiagnostic, sx } from './stripe.js';
@@ -13,13 +13,17 @@ import { checkIsolation } from './store.js';
 //   POST /portal                        public: address of Stripe's billing portal login page
 //   GET  /internal/cleanup            Vercel Cron -> us (Bearer CRON_SECRET)
 //   POST /stripe-webhook                Stripe -> us (signature checked on the raw body)
-//   POST /grant {id, days, mode} | POST /revoke {id} | GET /list | GET /find?email= | POST /relink {from, to}   admin, header X-Admin-Token
+//   POST /admin/session signs in with X-Admin-Token, GET extends the session, DELETE signs out.
+//   POST /grant {id, days, mode} | POST /revoke {id} | GET /list | GET /find?email= | POST /relink {from, to}   admin session or X-Admin-Token
 // Server-only environment variables: see .env.example.
 //
 const FP_RE = /^[a-f0-9]{64}$/;
 const TRIAL_SECONDS = 5 * 60;          // keep equal to TRIAL_SECONDS in paywall.js
 const NEW_TRIALS_PER_NETWORK_DAY = 40;
 const TRIAL_KEEP_DAYS = 400;
+const ADMIN_SESSION = '__Secure-drivefx-admin';
+const ADMIN_ACTIONS = new Set(['grant', 'revoke', 'list', 'find', 'relink']);
+const ADMIN_IDLE_SECONDS = 10 * 60;
 const SITE = 'https://drivefx.pro';
 const ORIGINS = [SITE, 'https://www.drivefx.pro', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'];
 
@@ -64,13 +68,74 @@ const getLic = (c, id) => c.store.get('lic:' + id);
 const putLic = (c, id, rec) => c.store.set('lic:' + id, rec);
 const mutateLicense = (c, fn) => c.store.transaction('license', store => fn({ ...c, store }));
 
-async function isAdmin(c) {
+async function checkAdminPassword(c) {
+  const password = c.req.headers.get('X-Admin-Token');
+  if (!password) return false;
   const key = rateKey(c, 'admin');
   if (await c.store.incr(key, 900) > 8) return 'locked';
-  const ok = c.env.ADMIN_TOKEN && c.env.ADMIN_TOKEN.length >= 14
-    && await same(c.req.headers.get('X-Admin-Token') || '', c.env.ADMIN_TOKEN);
+  const ok = c.env.ADMIN_TOKEN?.length >= 14 && await same(password, c.env.ADMIN_TOKEN);
   if (ok) await c.store.del(key);
-  return !!ok;
+  return ok;
+}
+
+function sameAdminOrigin(c) {
+  const origin = c.req.headers.get('Origin');
+  const site = c.req.headers.get('Sec-Fetch-Site');
+  return (!origin || origin === new URL(c.req.url).origin) && (!site || site === 'same-origin');
+}
+
+function adminSessionKey(c, token) {
+  // Tying the lookup key to the current password invalidates sessions on password rotation.
+  return c.env.ADMIN_TOKEN?.length >= 14 && /^[A-Za-z0-9_-]{43}$/.test(token || '')
+    ? 'admin-session:' + createHmac('sha256', c.env.ADMIN_TOKEN).update(token).digest('hex')
+    : null;
+}
+
+function requestSessionKey(c) {
+  const cookie = c.req.headers.get('Cookie')?.split(';').map(pair => pair.trim())
+    .find(pair => pair.startsWith(ADMIN_SESSION + '='));
+  return adminSessionKey(c, cookie?.slice(ADMIN_SESSION.length + 1));
+}
+
+async function resumeAdminSession(c) {
+  const key = requestSessionKey(c);
+  return key && await c.store.touch(key, ADMIN_IDLE_SECONDS);
+}
+
+function badAdminPassword(c, result) {
+  return result === 'locked'
+    ? json(c, { error: 'Too many wrong attempts. Try again in 15 minutes.' }, 429)
+    : json(c, { error: 'Wrong password.' }, 401);
+}
+
+function sessionResponse(c, token) {
+  const response = json(c, { ok: true });
+  response.headers.set('Set-Cookie', `${ADMIN_SESSION}=${token}; Path=/admin; Secure; HttpOnly; SameSite=Strict${token ? '' : '; Max-Age=0'}`);
+  return response;
+}
+
+async function adminSession(c) {
+  if (!sameAdminOrigin(c)) return json(c, { error: 'Forbidden.' }, 403);
+  if (c.req.method === 'GET') {
+    return await resumeAdminSession(c)
+      ? json(c, { ok: true })
+      : json(c, { error: 'Please sign in again.' }, 401);
+  }
+  if (c.req.method === 'POST') {
+    const auth = await checkAdminPassword(c);
+    if (auth !== true) return badAdminPassword(c, auth);
+    const old = requestSessionKey(c);
+    const token = randomBytes(32).toString('base64url');
+    await c.store.set(adminSessionKey(c, token), true, { ex: ADMIN_IDLE_SECONDS });
+    if (old) await c.store.del(old);
+    return sessionResponse(c, token);
+  }
+  if (c.req.method === 'DELETE') {
+    const key = requestSessionKey(c);
+    if (key) await c.store.del(key);
+    return sessionResponse(c, '');
+  }
+  return json(c, { error: 'method not allowed' }, 405);
 }
 
 function rateKey(c, name) {
@@ -330,12 +395,17 @@ async function trial(c, now) {
 }
 
 // ---- main router ----
-const ROUTES = new Set(['status', 'prices', 'go', 'thanks', 'portal', 'trial', 'grant', 'revoke', 'list', 'find', 'relink', 'stripe-webhook', 'cleanup']);
+const ROUTES = new Set(['status', 'prices', 'go', 'thanks', 'portal', 'trial', 'admin-session', ...ADMIN_ACTIONS, 'stripe-webhook', 'cleanup']);
 
 export function routeOf(url) {
   const r = url.searchParams.get('__r');                       // set by the rewrites in vercel.json
   if (r && ROUTES.has(r)) return r;
   const p = url.pathname.replace(/^\/+|\/+$/g, '');
+  if (p === 'admin/session') return 'admin-session';
+  if (p.startsWith('admin/')) {
+    const action = p.slice('admin/'.length);
+    return ADMIN_ACTIONS.has(action) ? action : '';
+  }
   return ROUTES.has(p) ? p : '';
 }
 
@@ -377,10 +447,15 @@ export async function handle(req, deps) {
     if (req.method === 'POST' && route === 'stripe-webhook') return await webhook(c, now);
     if (req.method === 'POST' && route === 'trial') return await trial(c, now);
 
-    if (['grant', 'revoke', 'list', 'find', 'relink'].includes(route)) {
-      const a = await isAdmin(c);
-      if (a === 'locked') return json(c, { error: 'Too many wrong attempts. Try again in 15 minutes.' }, 429);
-      if (!a) return json(c, { error: 'Wrong password.' }, 401);
+    if (route === 'admin-session') return await adminSession(c);
+    if (ADMIN_ACTIONS.has(route)) {
+      if (req.headers.has('X-Admin-Token')) {
+        const auth = await checkAdminPassword(c);
+        if (auth !== true) return badAdminPassword(c, auth);
+      } else {
+        if (!sameAdminOrigin(c)) return json(c, { error: 'Forbidden.' }, 403);
+        if (!await resumeAdminSession(c)) return json(c, { error: 'Please sign in again.' }, 401);
+      }
 
       if (req.method === 'GET' && route === 'list') {
         const out = await c.store.licenses();

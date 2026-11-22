@@ -134,6 +134,20 @@ test('DriveFX migration and concurrent writes on real Postgres', { skip: !ownerU
     assert.equal(usage.used, 210);
   });
 
+  await t.test('admin session activity extends only an unexpired transient record', async () => {
+    const key = 'admin-session:test';
+    assert.equal(await store.touch(key, 600), false);
+    await store.set(key, true, { ex: 10 });
+    assert.equal(await store.touch(key, 600), true);
+    const { rows: [row] } = await owner.query(
+      'SELECT expires_at > statement_timestamp() + interval \'9 minutes\' AS extended FROM drivefx.transient WHERE key = $1', [key]);
+    assert.equal(row.extended, true);
+    await owner.query('UPDATE drivefx.transient SET expires_at = now() WHERE key = $1', [key]);
+    assert.equal(await store.touch(key, 600), false);
+    await store.del(key);
+    assert.equal(await store.touch(key, 600), false);
+  });
+
   await t.test('rollback and exact purchase deduplication use durable transactions', async () => {
     let failCommit = true;
     const rollbackStore = {
