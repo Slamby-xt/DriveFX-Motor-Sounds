@@ -17,12 +17,10 @@
     { id: 'yearly',   name: 'Yearly',   per: 'per year' },
     { id: 'lifetime', name: 'Lifetime', per: 'one time', note: 'Pay once' },
   ];
-  // shown until the real prices arrive from the server (same numbers in every currency, in cents / pence)
-  const FALLBACK = { monthly: { usd: 299, eur: 299, gbp: 299 }, yearly: { usd: 2999, eur: 2999, gbp: 2999 }, lifetime: { usd: 4999, eur: 4999, gbp: 4999 } };
   const CURRENCIES = ['usd', 'eur', 'gbp'];
   // ==========================
 
-  const K = { id: 'dfx_id', used: 'dfx_used', sub: 'dfx_sub', cur: 'dfx_cur' };
+  const K = { id: 'dfx_id', used: 'dfx_used', sub: 'dfx_sub' };
   const ls = {
     get: k => { try { return localStorage.getItem(k); } catch { return null; } },
     set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
@@ -68,9 +66,14 @@
   // ---- state ----
   let used = +read(K.used) || 0;     // seconds of engine time used in the trial
   let lic = { ok: false };           // current subscription: { ok, exp, plan, manage, cancel } (exp 0 = lifetime)
-  let priceTable = FALLBACK;         // { monthly: { usd: 299, ... }, ... } from the server
-  let currency = CURRENCIES.includes(ls.get(K.cur)) ? ls.get(K.cur) : 'usd'; // suggested by the server by country unless the visitor picked one
-  const money = (plan, cur) => { const c = (priceTable[plan] || FALLBACK[plan])[cur || currency]; try { return new Intl.NumberFormat('en', { style: 'currency', currency: (cur || currency).toUpperCase(), minimumFractionDigits: 2 }).format(c / 100); } catch { return (c / 100).toFixed(2); } };
+  let pricing = null;
+  function money(plan) {
+    if (!pricing) return '—';
+    const currency = pricing.currency.toUpperCase();
+    const amount = pricing.amounts[plan] / 100;
+    try { return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(amount); }
+    catch { return currency + ' ' + amount.toFixed(2); }
+  }
   let blocked = false;               // the server refused a new trial from this network today (not saved: it says nothing about time used)
   const left = () => blocked ? 0 : Math.max(0, TRIAL_SECONDS - used);
   const unlocked = () => lic.ok && (lic.exp === 0 || lic.exp * 1000 > Date.now());
@@ -129,7 +132,6 @@
       <h2 id="pwTitle"></h2>
       <p id="pwText"></p>
       <div id="pwBuy">
-        <div class="pw-cur" id="pwCur" role="radiogroup" aria-label="Currency"></div>
         <div class="pw-plans" id="pwPlans" role="radiogroup" aria-label="Choose a plan"></div>
         <a class="pw-pay" id="pwPay" target="_blank" rel="noopener"></a>
         <div class="pw-qr" id="pwQrBox"><div id="pwQr" role="img" aria-label="QR code that opens the payment page"></div><small>Or scan with your phone to pay there.<br>This window unlocks by itself.</small></div>
@@ -164,45 +166,41 @@
     b.onclick = () => { plan = p.id; paintPlans(); };
     planBtns[p.id] = b; $('pwPlans').appendChild(b);
   });
-  const payUrl = (id, cur) => `${API}/go?id=${encodeURIComponent(deviceId)}&plan=${id}&cur=${cur || currency}`;
-  // currency buttons
-  const curBtns = {};
-  CURRENCIES.forEach(c => {
-    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'radio'); b.textContent = { usd: '$ USD', eur: '€ EUR', gbp: '£ GBP' }[c];
-    b.onclick = () => { currency = c; ls.set(K.cur, c); paintPlans(); };
-    curBtns[c] = b; $('pwCur').appendChild(b);
-  });
+  const payUrl = id => `${API}/go?id=${encodeURIComponent(deviceId)}&plan=${id}&expected_currency=${pricing.currency}`;
   function paintPlans() {
-    CURRENCIES.forEach(c => { curBtns[c].setAttribute('aria-checked', c === currency); curBtns[c].classList.toggle('on', c === currency); });
+    const amounts = pricing?.amounts;
+    const annualSaving = amounts ? Math.round((1 - amounts.yearly / (12 * amounts.monthly)) * 100) : 0;
     PLANS.forEach(p => {
       const btn = planBtns[p.id];
       btn.setAttribute('aria-checked', p.id === plan); btn.classList.toggle('on', p.id === plan);
       btn.querySelector('.pw-price').textContent = money(p.id);
-      const note = btn.querySelector('.pw-note'), t = priceTable[p.id] || FALLBACK[p.id], m = priceTable.monthly || FALLBACK.monthly;
-      const save = p.id === 'yearly' ? Math.round((1 - t[currency] / (12 * m[currency])) * 100) : 0;
-      note.textContent = p.id === 'yearly' ? (save > 0 ? `Save ${save}%` : '') : (p.note || ''); note.hidden = !note.textContent;
+      const note = btn.querySelector('.pw-note');
+      note.textContent = p.id === 'yearly' && annualSaving > 0 ? `Save ${annualSaving}%` : (p.note || '');
+      note.hidden = !note.textContent;
     });
-    const url = payUrl(plan), pay = $('pwPay');
-    if (!pricesOk) { // the license server cannot take payments (yet): no dead pay button
-      pay.removeAttribute('href'); pay.setAttribute('aria-disabled', 'true'); pay.textContent = 'PAYMENTS OPEN SOON';
+    const pay = $('pwPay');
+    if (!pricing) {
+      pay.removeAttribute('href'); pay.setAttribute('aria-disabled', 'true');
+      pay.textContent = pricesBusy ? 'LOADING PRICES…' : 'PAYMENTS UNAVAILABLE';
       $('pwQrBox').hidden = true; $('pwQr').replaceChildren(); return;
     }
+    const url = payUrl(plan);
     pay.href = url; pay.removeAttribute('aria-disabled'); pay.textContent = `PAY ${money(plan)}${plan === 'lifetime' ? '' : plan === 'yearly' ? ' / YEAR' : ' / MONTH'}`;
     try { const q = qrcode(0, 'M'); q.addData(url); q.make(); $('pwQr').innerHTML = q.createSvgTag({ cellSize: 3, margin: 2, scalable: true }); $('pwQrBox').hidden = false; }
     catch { $('pwQrBox').hidden = true; }
   }
-  // real prices and the currency suggested for the visitor's country (until they pick one themselves).
-  // Until this succeeds the pay button stays disabled, so a server without Stripe never shows a dead button.
-  let pricesOk = false, pricesBusy = false;
+  // Wait for the server's pricing before displaying amounts or enabling checkout.
+  let pricesBusy = false;
   function loadPrices() {
-    if (pricesOk || pricesBusy) return;
+    if (pricing || pricesBusy) return;
     pricesBusy = true;
     fetch(`${API}/prices`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => {
-      if (!j || !j.plans || !j.plans.monthly || !j.plans.yearly || !j.plans.lifetime) return;
-      priceTable = j.plans; pricesOk = true;
-      if (!CURRENCIES.includes(ls.get(K.cur)) && CURRENCIES.includes(j.currency)) currency = j.currency;
-      paintPlans();
-    }).catch(() => {}).finally(() => { pricesBusy = false; });
+      const currency = j?.currency;
+      if (!CURRENCIES.includes(currency)) return;
+      const amounts = Object.fromEntries(PLANS.map(({ id }) => [id, j.plans?.[id]?.[currency]]));
+      if (Object.values(amounts).some(amount => !Number.isInteger(amount) || amount <= 0)) return;
+      pricing = { currency, amounts };
+    }).catch(() => {}).finally(() => { pricesBusy = false; paintPlans(); });
   }
   loadPrices();
   $('pwPay').addEventListener('click', e => { if ($('pwPay').getAttribute('aria-disabled') === 'true') e.preventDefault(); });

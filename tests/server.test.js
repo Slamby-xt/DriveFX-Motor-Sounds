@@ -77,18 +77,64 @@ test('checkout /go validates input, redirects to Stripe, uses own origin on prev
   assert.equal((await a.call('GET', '/go?id=bad&plan=monthly')).status, 400);
   assert.equal((await a.call('GET', '/go?id=' + ID + '&plan=gold')).status, 400);
   for (const plan of ['monthly', 'yearly', 'lifetime']) {
-    const r = await a.call('GET', `/go?id=${ID}&plan=${plan}&cur=gbp`);
+    const r = await a.call('GET', `/go?id=${ID}&plan=${plan}`, { headers: { 'x-vercel-ip-country': 'GB' } });
     assert.equal(r.status, 303); assert.match(r.headers.get('location'), /checkout\.stripe\.com/);
     const call = a.stripe.calls.filter(c => c.p === '/checkout/sessions').pop().body;
     assert.equal(call.mode, plan === 'lifetime' ? 'payment' : 'subscription'); assert.equal(call.currency, 'gbp');
     assert.equal(call['line_items[0][price]'], { monthly: 'price_m', yearly: 'price_y', lifetime: 'price_l' }[plan]);
     assert.equal(call.success_url, 'https://drivefx-test.vercel.app/thanks?id=' + ID);
   }
-  await a.call('GET', `/go?id=${ID}&plan=monthly&cur=jpy`);
-  assert.equal(a.stripe.calls.filter(c => c.p === '/checkout/sessions').pop().body.currency, 'usd', 'unknown currency falls back');
   const prod = app({ env: { VERCEL_ENV: 'production', DATA_PREFIX: 'prod', STRIPE_KEY: 'sk_live_x', MANAGED_PAYMENTS_COUNTRY_GATE_VERIFIED: '1', TERMS_CONSENT: '1' } });
   await prod.call('GET', `/go?id=${ID}&plan=yearly`);
   assert.equal(prod.stripe.calls.filter(c => c.p === '/checkout/sessions').pop().body.success_url, 'https://drivefx.pro/thanks?id=' + ID);
+});
+
+test('checkout uses the same country currency as prices and ignores currency overrides', async () => {
+  for (const [country, currency, override] of [
+    ['GB', 'gbp', 'usd'], ['JE', 'gbp', 'eur'], ['GG', 'gbp', 'usd'], ['IM', 'gbp', 'eur'],
+    ['DE', 'eur', 'usd'], ['BG', 'eur', 'gbp'], ['AD', 'eur', 'usd'],
+    ['CA', 'usd', 'gbp'], [null, 'usd', 'eur'],
+  ]) {
+    const a = app();
+    const headers = country ? { 'x-vercel-ip-country': country } : {};
+    const quote = await a.j(await a.call('GET', '/prices', { headers }));
+    assert.equal(quote.currency, currency);
+    const path = `/go?id=${ID}&plan=monthly`;
+    const tampered = await a.call('GET', path + '&cur=' + override + '&currency=' + override, { headers });
+    const direct = await a.call('GET', path, { headers });
+    assert.equal(tampered.status, 303);
+    assert.equal(direct.status, 303);
+    assert.equal(tampered.headers.get('location'), direct.headers.get('location'));
+    const checkoutCalls = a.stripe.calls.filter(c => c.method === 'POST' && c.p === '/checkout/sessions');
+    assert.equal(checkoutCalls.length, 1);
+    assert.equal(checkoutCalls[0].body.currency, currency);
+    assert.equal(checkoutCalls[0].body['metadata[currency]'], currency);
+  }
+});
+
+test('a QR opened in a different pricing region confirms the payer’s server-selected price first', async () => {
+  const a = app();
+  const path = `/go?id=${ID}&plan=monthly`;
+  const country = code => ({ headers: { 'x-vercel-ip-country': code } });
+  const car = await a.call('GET', path + '&expected_currency=gbp', country('GB'));
+  assert.equal(car.status, 303);
+
+  const phone = await a.call('GET', path + '&expected_currency=gbp&cur=usd', country('DE'));
+  assert.equal(phone.status, 200);
+  const html = await phone.text();
+  assert.match(html, /€2\.99/);
+  assert.match(html, /expected_currency=eur/);
+  const created = () => a.stripe.calls.filter(c => c.method === 'POST' && c.p === '/checkout/sessions');
+  assert.equal(created().length, 1, 'the mismatch page does not create a Stripe session');
+  const link = html.match(/href="([^"]+)"[^>]*>Continue to Stripe/)[1].replaceAll('&amp;', '&');
+  assert.equal((await a.call('GET', link, country('DE'))).status, 303);
+  assert.equal(created().length, 2);
+  assert.equal(created()[1].body.currency, 'eur');
+
+  const tampered = await a.call('GET', path + '&expected_currency=usd', country('GB'));
+  assert.equal(tampered.status, 200);
+  assert.match(await tampered.text(), /£2\.99/);
+  assert.equal(created().length, 2);
 });
 
 test('go rate limit is per client ip', async () => {
@@ -375,8 +421,8 @@ test('catalogue verifies all nine inclusive amounts and Checkout uses the Manage
     lifetime: { usd: 4999, eur: 4999, gbp: 4999 },
   });
   for (const plan of Object.keys(catalog.plans)) {
-    for (const currency of ['usd', 'eur', 'gbp']) {
-      const r = await a.call('GET', `/go?id=${ID}&plan=${plan}&cur=${currency}`);
+    for (const [country, currency] of [['US', 'usd'], ['DE', 'eur'], ['GB', 'gbp']]) {
+      const r = await a.call('GET', `/go?id=${ID}&plan=${plan}`, { headers: { 'x-vercel-ip-country': country } });
       assert.equal(r.status, 303);
       const body = a.stripe.calls.filter(x => x.method === 'POST').at(-1).body;
       assert.equal(body.currency, currency);
@@ -391,7 +437,7 @@ test('catalogue verifies all nine inclusive amounts and Checkout uses the Manage
   const bad = app({ env: { STRIPE_KEY: 'sk_test_wrong_price' } });
   bad.stripe.prices[1].currency_options.eur.tax_behavior = 'exclusive';
   assert.equal((await bad.call('GET', '/prices')).status, 503);
-  assert.equal((await bad.call('GET', `/go?id=${ID}&plan=yearly&cur=eur`)).status, 503);
+  assert.equal((await bad.call('GET', `/go?id=${ID}&plan=yearly`, { headers: { 'x-vercel-ip-country': 'DE' } })).status, 503);
   assert.ok(!bad.stripe.calls.some(x => x.method === 'POST'));
 });
 

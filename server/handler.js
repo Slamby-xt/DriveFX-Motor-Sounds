@@ -1,14 +1,14 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
 import { deviceMetadata, finishBilling, ID_RE, isActive, webhook } from './payments.js';
-import { CURRENCIES, getPrices, PLANS, stripeDiagnostic, sx } from './stripe.js';
+import { getPrices, PLANS, stripeDiagnostic, sx } from './stripe.js';
 import { checkIsolation } from './store.js';
 
 // DriveFX license server for Vercel (Node.js Functions) and Neon Postgres.
 //   GET  /status?id=DFX-XXXX-XXXX      public: is this device subscribed? -> { active, exp, plan, manage, cancel }
 //   POST /trial   {id, fp, used}        public: free-trial ledger kept on the server, so clearing cookies does not reset it
-//   GET  /prices                        public: prices in usd/eur/gbp from Stripe + the currency suggested for this visitor's country
-//   GET  /go?id=&plan=&cur=             public: creates a Stripe Checkout session and redirects to it (also what the QR code opens)
+//   GET  /prices                        public: Stripe plan prices and the currency assigned to this visitor's country
+//   GET  /go?id=&plan=                 public: creates a Stripe Checkout session and redirects to it (also what the QR code opens)
 //   GET  /thanks?id=                    public: page shown after Checkout (never grants anything)
 //   POST /portal                        public: address of Stripe's billing portal login page
 //   GET  /internal/cleanup            Vercel Cron -> us (Bearer CRON_SECRET)
@@ -257,14 +257,19 @@ function hostedCheckoutUrl(value) {
   }
 }
 
+function reviewCheckoutPrice(id, plan, currency, amount) {
+  const price = new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(amount / 100);
+  const next = new URLSearchParams({ id, plan, expected_currency: currency });
+  return page('Review your DriveFX price', `<h1>Review your price</h1><p>Your current network is in a different pricing region. The price for your ${esc(PLANS[plan].name)} plan is <strong>${esc(price)}</strong>. Stripe will show the final total before you pay.</p><p><a href="/go?${esc(next)}">Continue to Stripe</a></p>`);
+}
+
 async function go(c, url, now) {
   const id = (url.searchParams.get('id') || '').toUpperCase();
   const plan = url.searchParams.get('plan') || '';
   if (!ID_RE.test(id) || !Object.hasOwn(PLANS, plan)) return page('DriveFX', '<h1>Link not valid</h1><p>Open DriveFX and choose a plan again.</p>', 400);
   if (!checkoutEnabled(c.env)) return page('DriveFX', '<h1>DriveFX sales are paused</h1><p>Existing customers can still manage their plan in DriveFX.</p>', 503);
   if (await c.store.incr(rateKey(c, 'go'), 3600) > 30) return page('DriveFX', '<h1>Too many attempts</h1><p>Please try again in a little while.</p>', 429);
-  const asked = (url.searchParams.get('cur') || '').toLowerCase();
-  const cur = CURRENCIES.includes(asked) ? asked : currencyFor(countryOf(c.req));
+  const cur = currencyFor(countryOf(c.req));
 
   const rec = await getLic(c, id);
   if (isActive(rec, now) && (rec.exp === 0 || plan !== 'lifetime')) {
@@ -272,6 +277,9 @@ async function go(c, url, now) {
   }
   try {
     const price = (await getPrices(c))[plan];
+    // The expected currency only guards the displayed quote. The payer's network sets the price.
+    const expected = url.searchParams.get('expected_currency');
+    if (expected && expected !== cur) return reviewCheckoutPrice(id, plan, cur, price.amounts[cur]);
     const sub = plan !== 'lifetime';
     const desc = `${PLANS[plan].name} · ID ${id}`;
     const metadata = deviceMetadata(id, plan, price.id, cur, price.amounts[cur]);

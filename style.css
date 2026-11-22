@@ -300,8 +300,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 @media (min-aspect-ratio:3/2) and (max-height:820px){
   .pw-card{width:min(780px,100%);padding:22px 24px 18px}
   .pw-card h2{margin:10px 0 6px;font-size:22px}.pw-card p{margin-bottom:10px}
-  #pwBuy:not(:has(#pwQrBox[hidden])){display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);grid-template-areas:"cur qr" "plans qr" "pay qr" "fine qr";column-gap:22px;align-items:start}
-  #pwBuy:not(:has(#pwQrBox[hidden])) .pw-cur{grid-area:cur;margin-bottom:8px}
+  #pwBuy:not(:has(#pwQrBox[hidden])){display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);grid-template-areas:"plans qr" "pay qr" "fine qr";column-gap:22px;align-items:start}
   #pwBuy:not(:has(#pwQrBox[hidden])) .pw-plans{grid-area:plans;margin-bottom:10px}
   #pwBuy:not(:has(#pwQrBox[hidden])) .pw-pay{grid-area:pay}
   #pwBuy:not(:has(#pwQrBox[hidden])) .pw-fine{grid-area:fine}
@@ -309,10 +308,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   .pw-how{display:none}.pw-id{margin-top:10px;margin-bottom:6px}
 }
 
-/* ---- payments: currency switch and manage button ---- */
-.pw-cur{display:flex;justify-content:center;gap:6px;margin:0 0 12px}
-.pw-cur button{padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--mute);font:700 11px var(--f-display);letter-spacing:.1em;cursor:pointer}
-.pw-cur button.on{border-color:var(--accent,#00e5ff);color:var(--accent,#00e5ff);background:rgba(255,255,255,.05)}
+/* ---- payments: manage button ---- */
 .pw-manage{display:block;width:100%;margin:0 0 12px;padding:13px;border-radius:10px;border:1px solid var(--accent,#00e5ff);background:rgba(255,255,255,.04);color:var(--accent,#00e5ff);font:800 11px var(--f-display);letter-spacing:.12em;cursor:pointer}
 .pw-manage:disabled{opacity:.6;cursor:wait}
 .pw-fine a{color:var(--accent,#00e5ff)}

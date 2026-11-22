@@ -10,7 +10,7 @@
 ## Free and Pro
 
 - **Free** has five minutes of engine time and five cars per device. The free cars are the Porsche 911 GT3, Dodge Challenger Hellcat, BMW M3, Ford Mustang Boss 429 and Tesla Roadster. The server records trial usage using the device ID and keyed hashes of device traits and network.
-- **Pro** unlocks all cars and unlimited engine time. Monthly is 2.99, Yearly is 29.99, and Lifetime is a one-time 49.99. These are the tax-inclusive base prices in GBP, EUR and USD. DriveFX suggests GBP or EUR where supported and uses USD as its fallback. Stripe Checkout can offer local currency conversion.
+- **Pro** unlocks all cars and unlimited engine time. Monthly is 2.99, Yearly is 29.99, and Lifetime is a one-time 49.99. These are the tax-inclusive base prices in GBP, EUR and USD. DriveFX selects GBP or EUR based on your network country and uses USD elsewhere. Stripe Checkout can offer local currency conversion.
 - Pro is tied to a `DFX-XXXX-XXXX` device ID. Save it to restore access. The upgrade button and phone QR code open Stripe Checkout. Stripe's signed webhook confirms payment and updates the license.
 - **Manage subscription** opens Link for live orders. For app support, start at [Contact](https://drivefx.pro/contact.html). [Terms & Privacy](https://drivefx.pro/terms.html) covers cancellation, refunds and privacy. Operators can restore or move a license through the [admin panel](https://drivefx.pro/admin).
 
